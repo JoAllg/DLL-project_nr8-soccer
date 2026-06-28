@@ -1,0 +1,43 @@
+# =========================
+# bwHPC deployment and Slurm scripts (2026)
+# Joshua Allgeier <allgeier@informatik.uni-freiburg.de>
+# =========================
+### BwUniCluster 3.0
+
+Host hpc.sinfo
+  RequestTTY yes
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/sinfo.sh
+
+Host hpc.salloc
+  RequestTTY yes
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/salloc.sh
+
+Host hpc.srun
+  RequestTTY yes
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/srun.sh
+
+Host hpc.slogin
+  RequestTTY yes
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/slogin.sh
+
+Host hpc.scancel
+  RequestTTY yes
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/scancel.sh
+
+Host hpc.sbatch
+  RequestTTY yes
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/sbatch.sh
+
+Host hpc.scontrol
+  RequestTTY yes
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/scontrol.sh
+
+Host hpc hpc.*
+  HostName {{HPC_HOST}}
+  User {{HPC_USER}}
+  Port 22
+  IdentityFile {{HPC_IDENTITY}}
+  IdentitiesOnly yes
+  LogLevel ERROR
+  ServerAliveInterval 60
+  ServerAliveCountMax 10
