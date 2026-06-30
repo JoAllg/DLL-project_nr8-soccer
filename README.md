@@ -7,7 +7,7 @@ In soccer, players need to work together to play well. Transformers can be usefu
 - Train agents with deep reinforcement learning
 - Evaluate cooperation and generalization to different team sizes (optional!)
 
-## Installation
+# Installation
 The suggested python environment manager is [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
 `rc-robosim` is build from source. For that the [ODE (Open Dynamics Engine)](https://ode.org/wiki/index.php?title=Manual) library is required. Install it via your system package manager (see the manual) or build it from source:
@@ -38,4 +38,17 @@ uv sync --all-extras
 # References
 
 - The PPO Algorithm is based on [https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py) / [https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy](https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy)
+
+
+
+# Ressources
+rSoccer environment: https://github.com/robocin/rSoccer
+
+Proximal Policy Optimization (PPO) paper: https://arxiv.org/pdf/1707.06347
+
+Very good initial implementation (CleanRL): https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py
+
+Introduction into Deep RL: https://spinningup.openai.com/en/latest/spinningup/rl_intro.html (PPO is also explained there!)
+
+For transformers, there are a lof of very good tutorials out there, but it depends on how much you already understand. In the end, you will probably be working with something of the PyTorch library: https://docs.pytorch.org/docs/2.12/generated/torch.nn.TransformerEncoderLayer.html
 
