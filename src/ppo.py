@@ -1,6 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 import os
-import random
 import time
 
 # Auto-select headless rendering backend if no display is available
@@ -15,13 +14,13 @@ from typing import Optional
 
 import gymnasium as gym
 import numpy as np
-import shimmy
+import shimmy  # noqa: F401
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import tyro
 from torch.distributions.normal import Normal
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard.writer import SummaryWriter
 
 import utils
 
@@ -186,9 +185,11 @@ if __name__ == "__main__":
         [make_env(args.env_id, i, args.capture_video, run_name, args.gamma) for i in range(args.num_envs)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
+    print("envs.single_action_space.shape:", envs.single_action_space.shape)
+    print("envs.single_observation_space.shape:", envs.single_observation_space.shape)
 
     agent = Agent(envs).to(device)
-    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)  # pyright: ignore[reportPrivateImportUsage]
 
     # ALGO Logic: Storage setup
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
