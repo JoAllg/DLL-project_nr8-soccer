@@ -2,6 +2,14 @@
 import os
 import random
 import time
+
+# Auto-select headless rendering backend if no display is available
+if not os.environ.get("DISPLAY") and "MUJOCO_GL" not in os.environ:
+    if os.path.exists("/dev/nvidia0"):
+        os.environ["MUJOCO_GL"] = "egl"   # GPU offscreen rendering
+    else:
+        os.environ["MUJOCO_GL"] = "osmesa" # CPU software rendering
+
 from dataclasses import dataclass
 from typing import Optional
 
