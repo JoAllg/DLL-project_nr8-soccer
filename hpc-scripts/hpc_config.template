@@ -20,9 +20,9 @@ Host hpc.srun
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/srun.sh
 
 # Open a shell on a running node
-Host hpc.slogin
+Host hpc.login
   RequestTTY yes
-  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/slogin.sh
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/login.sh
 
 # Cancel a job
 Host hpc.scancel

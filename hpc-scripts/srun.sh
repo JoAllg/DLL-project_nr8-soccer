@@ -12,7 +12,7 @@ echo "### Updating repository..."
 git pull
 
 echo "### Syncing uv environment..."
-uv sync
+uv sync --all-extras
 
 # Show running jobs
 echo ""

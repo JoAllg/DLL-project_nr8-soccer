@@ -159,6 +159,28 @@ ssh "$HPC" "
     fi
 "
 
+###############################################################################
+# 8. Install ODE
+###############################################################################
+echo ""
+echo "=== Installing ODE ==="
+
+ssh "$HPC" '[ -f "$HOME/.local/lib64/libode.so" ] && echo "  ODE already installed, skipping" || bash '"${REMOTE_SCRIPTS_DIR}/install-ode.sh"
+
+###############################################################################
+# 9. Install Python dependencies
+###############################################################################
+echo ""
+echo "=== Installing Python dependencies ==="
+
+ssh "$HPC" "
+    source ${REMOTE_SCRIPTS_DIR}/.env.remote
+    export PATH=\"\$HOME/.local/bin:\$PATH\"
+    export LD_LIBRARY_PATH=\"\$HOME/.local/lib64:\$LD_LIBRARY_PATH\"
+    CMAKE_ARGS=\"-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DODE_INCLUDE_DIRS=\$HOME/.local/include -DODE_LIBRARIES=\$HOME/.local/lib64/libode.so\" \
+        uv sync --all-extras --project \"\$REPO_DIR\"
+"
+
 echo ""
 echo "=== Deployment complete ==="
 echo "  ssh hpc            - Login to HPC"
@@ -168,7 +190,7 @@ echo "  ssh hpc.sbatch     - Submit batch job"
 echo "  ssh hpc.srun       - Run training on a running node"
 echo "  ssh hpc.scancel    - Cancel a job"
 echo "  ssh hpc.scontrol   - Show job details"
-echo "  ssh hpc.slogin     - Login to a running node"
+echo "  ssh hpc.login     - Login to a running node"
 # echo "  ssh hpc.node       - SSH to compute node (newest job)"
 # echo "  ssh hpc.node.JOBID - SSH to compute node (specific job)"
 echo "  ssh hpc.tunnel     - Start VSCode/Cursor tunnel"

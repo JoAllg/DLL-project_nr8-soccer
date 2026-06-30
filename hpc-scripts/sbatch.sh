@@ -12,7 +12,7 @@ echo "### Updating repository..."
 git pull
 
 echo "### Syncing uv environment..."
-uv sync
+uv sync --all-extras
 
 # Partition metadata: "cpu_flag|max_time|description"
 declare -A PART_INFO
