@@ -32,4 +32,4 @@ fi
 
 echo ""
 echo "### Logging into job $JOBID..."
-exec srun --jobid="$JOBID" --chdir="$REPO_DIR" --pty bash -l
+exec srun --jobid="$JOBID" --chdir="$REPO_DIR" --overlap --pty bash -l
