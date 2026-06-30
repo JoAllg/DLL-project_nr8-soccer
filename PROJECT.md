@@ -15,7 +15,7 @@
    6. Add Transformer Encorder (Joshua)
 2. Increasing Team sizes (stepwise), adapting Rewards, improving lea
    - ~Parallelize environments (simulation) with random actions and step them/backropagate in steps (policy gradient).~
-   - Rewards that faciliate/shape cooperative teamwork
+   - Rewards that faciliate/shape cooperative teamwork (e.g. robots should not block each other -> penalty on low distance)
 3. ?
 	- Evaluate cooperation and generalization to different team sizes (optional!)
 4. Poster presentation DIN A0
