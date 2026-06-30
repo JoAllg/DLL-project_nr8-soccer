@@ -3,7 +3,7 @@ import random
 import numpy as np
 import gc
 
-def set_seed(seed: int):
+def set_seed(seed: int, deterministic: bool = False):
     """
     Helper function for reproducible behavior to set the seed in `random`, `numpy` and `torch`.
 
@@ -13,6 +13,7 @@ def set_seed(seed: int):
     np.random.seed(seed)
     random.seed(seed)
     torch.manual_seed(seed)
+    torch.use_deterministic_algorithms(deterministic)
 
 def get_device():
     if torch.cuda.is_available():
