@@ -121,22 +121,23 @@ echo ""
 echo "=== Setting up workspace ==="
 
 ssh "$HPC" "
+    source ${REMOTE_SCRIPTS_DIR}/.env.remote
     export PATH=\"\$HOME/.local/bin:\$PATH\"
-    if ws_find ${WORKSPACE_NAME} &>/dev/null; then
-        REMAINING=\$(ws_list ${WORKSPACE_NAME} 2>/dev/null | grep -oP '\\d+(?= day)' | head -1)
+    if ws_find \$WORKSPACE_NAME &>/dev/null; then
+        REMAINING=\$(ws_list \$WORKSPACE_NAME 2>/dev/null | grep -oP '\\d+(?= day)' | head -1)
         if [ \"\${REMAINING:-0}\" -lt 7 ]; then
-            ws_extend ${WORKSPACE_NAME} ${WORKSPACE_DAYS}
+            ws_extend \$WORKSPACE_NAME \$WORKSPACE_DAYS
             echo \"  Workspace extended (was \${REMAINING:-0} days remaining)\"
         else
             echo \"  Workspace has \$REMAINING days remaining, skipping extension\"
         fi
     else
         echo '  Allocating workspace...'
-        ws_allocate ${WORKSPACE_NAME} ${WORKSPACE_DAYS}
-        ws_send_ical ${WORKSPACE_NAME} ${WORKSPACE_EMAIL}
+        ws_allocate \$WORKSPACE_NAME \$WORKSPACE_DAYS
+        ws_send_ical \$WORKSPACE_NAME \$WORKSPACE_EMAIL
         ws_register workspaces
     fi
-    ln -sfn \$(ws_find ${WORKSPACE_NAME}) \$HOME/${WORKSPACE_NAME}
+    ln -sfn \$(ws_find \$WORKSPACE_NAME) \$HOME/\$WORKSPACE_NAME
 "
 
 ###############################################################################
@@ -146,14 +147,15 @@ echo ""
 echo "=== Setting up repository ==="
 
 ssh "$HPC" "
+    source ${REMOTE_SCRIPTS_DIR}/.env.remote
     export PATH=\"\$HOME/.local/bin:\$PATH\"
-    WS=\$(ws_find ${WORKSPACE_NAME})
-    if [ -d \"\$WS/${REPO_NAME}\" ]; then
+    WS=\$(ws_find \$WORKSPACE_NAME)
+    if [ -d \"\$WS/\$REPO_NAME\" ]; then
         echo '  Repository exists, pulling latest...'
-        cd \"\$WS/${REPO_NAME}\" && git checkout ${BRANCH:-main} && git pull
+        cd \"\$WS/\$REPO_NAME\" && git checkout \${BRANCH:-main} && git pull
     else
         echo '  Cloning repository...'
-        git clone --template= --branch ${BRANCH:-main} ${REPO_URL} \"\$WS/${REPO_NAME}\"
+        git clone --template= --branch \${BRANCH:-main} \$REPO_URL \"\$WS/\$REPO_NAME\"
     fi
 "
 

@@ -129,6 +129,12 @@ read -p "Select partition [1]: " SEL
 SEL=${SEL:-1}
 PARTITION="${ALL_PARTS[$((SEL-1))]}"
 
+# Check if selected partition is unavailable
+IS_UNAVAILABLE=false
+for p in "${BUSY_PARTS[@]}"; do
+    [[ "$p" == "$PARTITION" ]] && IS_UNAVAILABLE=true && break
+done
+
 # Look up metadata for selected partition
 info="${PART_INFO[$PARTITION]}"
 if [ -n "$info" ]; then
@@ -159,18 +165,29 @@ fi
 read -p "Time [$MAX_TIME]: " INPUT_TIME
 TIME=${INPUT_TIME:-$MAX_TIME}
 
-read -p "Job name [none]: " INPUT_JOBNAME
-JOBNAME=${INPUT_JOBNAME:-none}
+read -p "Job name [sbatch]: " INPUT_JOBNAME
+JOBNAME=${INPUT_JOBNAME:-sbatch}
+
+# Build mail flags for unavailable partitions
+MAIL_FLAGS=""
+if $IS_UNAVAILABLE; then
+    MAIL_FLAGS="--mail-type=BEGIN"
+    [ -n "$WORKSPACE_EMAIL" ] && MAIL_FLAGS="$MAIL_FLAGS --mail-user=$WORKSPACE_EMAIL"
+fi
 
 echo ""
 if [ "$IS_CPU" = "true" ]; then
     echo "### Submitting: $PARTITION, ${CPUS} CPU(s), $TIME, job=$JOBNAME"
-    sbatch -p "$PARTITION" --ntasks="$CPUS" $MEM_FLAG --time="$TIME" --job-name="$JOBNAME" \
+    sbatch -p "$PARTITION" --ntasks="$CPUS" $MEM_FLAG --time="$TIME" --job-name="$JOBNAME" $MAIL_FLAGS \
         --wrap="source \"$HOME/hpc-scripts/.env.remote\" && cd \"$REPO_DIR\" && ${JOB_CMD:-uv run python main.py}"
 else
     echo "### Submitting: $PARTITION, ${GPUS} GPU(s), $TIME, job=$JOBNAME"
-    sbatch -p "$PARTITION" --gres=gpu:"$GPUS" --time="$TIME" --job-name="$JOBNAME" \
+    sbatch -p "$PARTITION" --gres=gpu:"$GPUS" --time="$TIME" --job-name="$JOBNAME" $MAIL_FLAGS \
         --wrap="source \"$HOME/hpc-scripts/.env.remote\" && cd \"$REPO_DIR\" && ${JOB_CMD:-uv run python main.py}"
+fi
+
+if $IS_UNAVAILABLE; then
+    echo "### Note: Partition busy — you will be emailed at $WORKSPACE_EMAIL when the job starts."
 fi
 
 echo ""

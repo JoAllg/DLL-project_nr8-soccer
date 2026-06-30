@@ -23,62 +23,135 @@ PART_INFO[gpu_a100_il]="false|48:00:00|A100 80GiB Ice Lake, max 4 GPUs"
 PART_INFO[gpu_h100_il]="false|48:00:00|H100 80GiB Ice Lake, max 4 GPUs"
 PART_INFO[gpu_a100_short]="false|00:30:00|A100 40GiB, max 4 GPUs, 30min max"
 
-# Parse sinfo_t_idle for partitions with idle nodes
+# Parse sinfo_t_idle for all partitions
 AVAIL_PARTS=()
+BUSY_PARTS=()
 declare -A IDLE_COUNTS
 
 while IFS= read -r line; do
     part=$(awk '{print $2}' <<< "$line")
     count=$(awk '{print $4}' <<< "$line")
-    if [ "$count" -gt 0 ]; then
+    [ -z "$part" ] && continue
+    IDLE_COUNTS[$part]=$count
+    if [ "$count" -gt 0 ] 2>/dev/null; then
         AVAIL_PARTS+=("$part")
-        IDLE_COUNTS[$part]=$count
+    else
+        BUSY_PARTS+=("$part")
     fi
 done < <(sinfo_t_idle)
 
-# Sort: CPU normal, CPU short, CPU dev, GPU normal, GPU short, GPU dev
-SORTED_PARTS=()
-for pass in 1 2 3 4 5 6; do
-    for part in "${AVAIL_PARTS[@]}"; do
-        is_cpu=false; is_gpu=false; is_short=false; is_dev=false
-        [[ "$part" == *cpu* || "$part" == *mem* ]] && is_cpu=true
-        [[ "$part" == *gpu* ]] && is_gpu=true
-        [[ "$part" == *short* ]] && is_short=true
-        [[ "$part" == *dev* ]] && is_dev=true
-        case $pass in
-            1) $is_cpu && ! $is_short && ! $is_dev && SORTED_PARTS+=("$part") ;;
-            2) $is_cpu && $is_short && SORTED_PARTS+=("$part") ;;
-            3) $is_cpu && $is_dev && SORTED_PARTS+=("$part") ;;
-            4) $is_gpu && ! $is_short && ! $is_dev && SORTED_PARTS+=("$part") ;;
-            5) $is_gpu && $is_short && SORTED_PARTS+=("$part") ;;
-            6) $is_gpu && $is_dev && SORTED_PARTS+=("$part") ;;
-        esac
+# Sort helper: CPU normal, CPU short, CPU dev, GPU normal, GPU short, GPU dev
+sort_parts() {
+    local -n _in=$1
+    local -n _out=$2
+    _out=()
+    for pass in 1 2 3 4 5 6; do
+        for part in "${_in[@]}"; do
+            is_cpu=false; is_gpu=false; is_short=false; is_dev=false
+            [[ "$part" == *cpu* || "$part" == *mem* ]] && is_cpu=true
+            [[ "$part" == *gpu* ]] && is_gpu=true
+            [[ "$part" == *short* ]] && is_short=true
+            [[ "$part" == *dev* ]] && is_dev=true
+            case $pass in
+                1) $is_cpu && ! $is_short && ! $is_dev && _out+=("$part") ;;
+                2) $is_cpu && $is_short && _out+=("$part") ;;
+                3) $is_cpu && $is_dev && _out+=("$part") ;;
+                4) $is_gpu && ! $is_short && ! $is_dev && _out+=("$part") ;;
+                5) $is_gpu && $is_short && _out+=("$part") ;;
+                6) $is_gpu && $is_dev && _out+=("$part") ;;
+            esac
+        done
     done
-done
-AVAIL_PARTS=("${SORTED_PARTS[@]}")
+}
 
-if [ ${#AVAIL_PARTS[@]} -eq 0 ]; then
-    echo "No partitions with idle nodes available."
+SORTED_AVAIL=()
+SORTED_BUSY=()
+sort_parts AVAIL_PARTS SORTED_AVAIL
+sort_parts BUSY_PARTS SORTED_BUSY
+AVAIL_PARTS=("${SORTED_AVAIL[@]}")
+BUSY_PARTS=("${SORTED_BUSY[@]}")
+ALL_PARTS=("${AVAIL_PARTS[@]}" "${BUSY_PARTS[@]}")
+
+if [ ${#ALL_PARTS[@]} -eq 0 ]; then
+    echo "No partitions found."
     exec bash -i
 fi
 
-echo "### Available partitions:"
-for i in "${!AVAIL_PARTS[@]}"; do
-    part="${AVAIL_PARTS[$i]}"
-    count="${IDLE_COUNTS[$part]}"
-    info="${PART_INFO[$part]}"
-    if [ -n "$info" ]; then
-        IFS='|' read -r _cpu _time desc <<< "$info"
-        printf "  %2d)  %-18s %2d idle  (%s)\n" $((i+1)) "$part" "$count" "$desc"
-    else
-        printf "  %2d)  %-18s %2d idle\n" $((i+1)) "$part" "$count"
-    fi
-done
+# Probe busy partitions for estimated availability
+declare -A EST_TIMES
+if [ ${#BUSY_PARTS[@]} -gt 0 ]; then
+    echo ""
+    echo "Checking availability for busy partitions..."
+    for part in "${BUSY_PARTS[@]}"; do
+        info="${PART_INFO[$part]}"
+        is_cpu="false"
+        if [ -n "$info" ]; then
+            IFS='|' read -r is_cpu _ _ <<< "$info"
+        fi
+        if [ "$is_cpu" = "true" ]; then
+            mem_flag=""
+            [[ "$part" == "highmem" ]] && mem_flag="--mem=380001mb"
+            result=$(sbatch -p "$part" --ntasks=1 $mem_flag --time=00:10:00 --wrap="true" --test-only 2>&1)
+        else
+            result=$(sbatch -p "$part" --gres=gpu:1 --time=00:10:00 --wrap="true" --test-only 2>&1)
+        fi
+        ts=$(grep -oP 'to start at \K\S+' <<< "$result")
+        if [ -n "$ts" ]; then
+            EST_TIMES[$part]=$(date -d "$ts" '+%b %d %H:%M' 2>/dev/null || echo "$ts")
+        else
+            EST_TIMES[$part]="busy"
+        fi
+    done
+fi
+
+# Display available partitions
+if [ ${#AVAIL_PARTS[@]} -gt 0 ]; then
+    echo ""
+    echo "### Available partitions:"
+    for i in "${!AVAIL_PARTS[@]}"; do
+        part="${AVAIL_PARTS[$i]}"
+        count="${IDLE_COUNTS[$part]}"
+        info="${PART_INFO[$part]}"
+        if [ -n "$info" ]; then
+            IFS='|' read -r _cpu _time desc <<< "$info"
+            printf "  %2d)  %-18s %2d idle  (%s)\n" $((i+1)) "$part" "$count" "$desc"
+        else
+            printf "  %2d)  %-18s %2d idle\n" $((i+1)) "$part" "$count"
+        fi
+    done
+else
+    echo ""
+    echo "### No partitions with idle nodes available."
+fi
+
+# Display unavailable partitions
+if [ ${#BUSY_PARTS[@]} -gt 0 ]; then
+    offset=${#AVAIL_PARTS[@]}
+    echo ""
+    echo "### Unavailable partitions:"
+    for i in "${!BUSY_PARTS[@]}"; do
+        part="${BUSY_PARTS[$i]}"
+        info="${PART_INFO[$part]}"
+        status="~ ${EST_TIMES[$part]:-busy}"
+        if [ -n "$info" ]; then
+            IFS='|' read -r _cpu _time desc <<< "$info"
+            printf "  %2d)  %-18s %-16s  (%s)\n" $((offset+i+1)) "$part" "$status" "$desc"
+        else
+            printf "  %2d)  %-18s %-16s\n" $((offset+i+1)) "$part" "$status"
+        fi
+    done
+fi
 
 echo ""
 read -p "Select partition [1]: " SEL
 SEL=${SEL:-1}
-PARTITION="${AVAIL_PARTS[$((SEL-1))]}"
+PARTITION="${ALL_PARTS[$((SEL-1))]}"
+
+# Check if selected partition is unavailable
+IS_UNAVAILABLE=false
+for p in "${BUSY_PARTS[@]}"; do
+    [[ "$p" == "$PARTITION" ]] && IS_UNAVAILABLE=true && break
+done
 
 # Look up metadata for selected partition
 info="${PART_INFO[$PARTITION]}"
@@ -110,16 +183,31 @@ fi
 read -p "Time [$MAX_TIME]: " INPUT_TIME
 TIME=${INPUT_TIME:-$MAX_TIME}
 
-read -p "Job name [none]: " INPUT_JOBNAME
-JOBNAME=${INPUT_JOBNAME:-none}
+if [ -z "$INPUT_TIME" ]; then
+    echo "### Reminder: cancel the allocation with 'scancel <jobid>' when no longer needed!"
+fi
+
+read -p "Job name [salloc]: " INPUT_JOBNAME
+JOBNAME=${INPUT_JOBNAME:-salloc}
+
+# Build mail flags for unavailable partitions
+MAIL_FLAGS=""
+if $IS_UNAVAILABLE; then
+    MAIL_FLAGS="--mail-type=BEGIN"
+    [ -n "$WORKSPACE_EMAIL" ] && MAIL_FLAGS="$MAIL_FLAGS --mail-user=$WORKSPACE_EMAIL"
+fi
 
 echo ""
 if [ "$IS_CPU" = "true" ]; then
     echo "### Requesting: $PARTITION, ${CPUS} CPU(s), $TIME, job=$JOBNAME"
-    SALLOC_CMD="salloc -p \"$PARTITION\" --ntasks=\"$CPUS\" $MEM_FLAG --time=\"$TIME\" --job-name=\"$JOBNAME\" --chdir=\"$REPO_DIR\""
+    SALLOC_CMD="salloc -p \"$PARTITION\" --ntasks=\"$CPUS\" $MEM_FLAG --time=\"$TIME\" --job-name=\"$JOBNAME\" $MAIL_FLAGS --chdir=\"$REPO_DIR\""
 else
     echo "### Requesting: $PARTITION, ${GPUS} GPU(s), $TIME, job=$JOBNAME"
-    SALLOC_CMD="salloc -p \"$PARTITION\" --gres=gpu:\"$GPUS\" --time=\"$TIME\" --job-name=\"$JOBNAME\" --chdir=\"$REPO_DIR\""
+    SALLOC_CMD="salloc -p \"$PARTITION\" --gres=gpu:\"$GPUS\" --time=\"$TIME\" --job-name=\"$JOBNAME\" $MAIL_FLAGS --chdir=\"$REPO_DIR\""
+fi
+
+if $IS_UNAVAILABLE; then
+    echo "### Note: Partition busy — you will be emailed at $WORKSPACE_EMAIL when the job starts."
 fi
 
 # The salloc job runs inside a tmux session so it survives SSH disconnects.
