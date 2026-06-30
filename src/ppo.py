@@ -56,7 +56,7 @@ class Args:
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 1
+    num_envs: int = 8
     """the number of parallel game environments"""
     num_steps: int = 2048
     """the number of steps to run in each environment per policy rollout"""
@@ -181,7 +181,8 @@ if __name__ == "__main__":
     device, _ = utils.get_device()
 
     # env setup
-    envs = gym.vector.SyncVectorEnv(
+
+    envs = gym.vector.AsyncVectorEnv(
         [make_env(args.env_id, i, args.capture_video, run_name, args.gamma) for i in range(args.num_envs)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
