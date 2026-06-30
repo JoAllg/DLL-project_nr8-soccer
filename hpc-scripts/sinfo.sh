@@ -11,3 +11,4 @@ sinfo_t_idle
 echo ""
 echo "### Your jobs"
 squeue -u "$USER" -l
+squeue -u "$USER" --start

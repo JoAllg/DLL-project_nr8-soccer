@@ -4,35 +4,64 @@
 # =========================
 ### BwUniCluster 3.0
 
+# Show available resources and queued jobs
 Host hpc.sinfo
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/sinfo.sh
 
+# Interactively reserve compute nodes (runs inside tmux)
 Host hpc.salloc
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/salloc.sh
 
+# Run JOB_CMD on an running node
 Host hpc.srun
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/srun.sh
 
+# Open a shell on a running node
 Host hpc.slogin
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/slogin.sh
 
+# Cancel a job
 Host hpc.scancel
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/scancel.sh
 
+# Submit a batch job running JOB_CMD
 Host hpc.sbatch
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/sbatch.sh
 
+# Show details of a job
 Host hpc.scontrol
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/scontrol.sh
 
-Host hpc hpc.*
+# Start a VS Code / Cursor remote tunnel on a running job
+Host hpc.tunnel
+  RequestTTY yes
+  RemoteCommand {{REMOTE_SCRIPTS_DIR}}/code_tunnel.sh
+
+# # Connect to compute node — auto-select newest running job
+# Host hpc.node
+#   ProxyCommand ~/.ssh/connect-hpc-node.sh %n
+#
+# # Connect to compute node by job ID or name (e.g., ssh hpc.node.12345)
+# Host hpc.node.*
+#   ProxyCommand ~/.ssh/connect-hpc-node.sh %n
+#
+# # Shared settings for compute node access
+# Host hpc.node hpc.node.*
+#   UserKnownHostsFile /dev/null
+#   StrictHostKeyChecking no
+#   ForwardAgent yes
+#   User {{HPC_USER}}
+#   LogLevel ERROR
+#   RequestTTY yes
+
+Host hpc hpc.* !hpc.node !hpc.node.*
   HostName {{HPC_HOST}}
   User {{HPC_USER}}
   Port 22

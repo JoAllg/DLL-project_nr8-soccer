@@ -159,14 +159,17 @@ fi
 read -p "Time [$MAX_TIME]: " INPUT_TIME
 TIME=${INPUT_TIME:-$MAX_TIME}
 
+read -p "Job name [none]: " INPUT_JOBNAME
+JOBNAME=${INPUT_JOBNAME:-none}
+
 echo ""
 if [ "$IS_CPU" = "true" ]; then
-    echo "### Submitting: $PARTITION, ${CPUS} CPU(s), $TIME"
-    sbatch -p "$PARTITION" --ntasks="$CPUS" $MEM_FLAG --time="$TIME" --job-name="$REPO_NAME" \
+    echo "### Submitting: $PARTITION, ${CPUS} CPU(s), $TIME, job=$JOBNAME"
+    sbatch -p "$PARTITION" --ntasks="$CPUS" $MEM_FLAG --time="$TIME" --job-name="$JOBNAME" \
         --wrap="source \"$HOME/hpc-scripts/.env.remote\" && cd \"$REPO_DIR\" && ${JOB_CMD:-uv run python main.py}"
 else
-    echo "### Submitting: $PARTITION, ${GPUS} GPU(s), $TIME"
-    sbatch -p "$PARTITION" --gres=gpu:"$GPUS" --time="$TIME" --job-name="$REPO_NAME" \
+    echo "### Submitting: $PARTITION, ${GPUS} GPU(s), $TIME, job=$JOBNAME"
+    sbatch -p "$PARTITION" --gres=gpu:"$GPUS" --time="$TIME" --job-name="$JOBNAME" \
         --wrap="source \"$HOME/hpc-scripts/.env.remote\" && cd \"$REPO_DIR\" && ${JOB_CMD:-uv run python main.py}"
 fi
 

@@ -110,11 +110,24 @@ fi
 read -p "Time [$MAX_TIME]: " INPUT_TIME
 TIME=${INPUT_TIME:-$MAX_TIME}
 
+read -p "Job name [none]: " INPUT_JOBNAME
+JOBNAME=${INPUT_JOBNAME:-none}
+
 echo ""
 if [ "$IS_CPU" = "true" ]; then
-    echo "### Requesting: $PARTITION, ${CPUS} CPU(s), $TIME"
-    salloc -p "$PARTITION" --ntasks="$CPUS" $MEM_FLAG --time="$TIME" --chdir="$REPO_DIR"
+    echo "### Requesting: $PARTITION, ${CPUS} CPU(s), $TIME, job=$JOBNAME"
+    SALLOC_CMD="salloc -p \"$PARTITION\" --ntasks=\"$CPUS\" $MEM_FLAG --time=\"$TIME\" --job-name=\"$JOBNAME\" --chdir=\"$REPO_DIR\""
 else
-    echo "### Requesting: $PARTITION, ${GPUS} GPU(s), $TIME"
-    salloc -p "$PARTITION" --gres=gpu:"$GPUS" --time="$TIME" --chdir="$REPO_DIR"
+    echo "### Requesting: $PARTITION, ${GPUS} GPU(s), $TIME, job=$JOBNAME"
+    SALLOC_CMD="salloc -p \"$PARTITION\" --gres=gpu:\"$GPUS\" --time=\"$TIME\" --job-name=\"$JOBNAME\" --chdir=\"$REPO_DIR\""
 fi
+
+# The salloc job runs inside a tmux session so it survives SSH disconnects.
+# To stop the allocation, either use `scancel <jobid>` or reattach to the
+# tmux session and exit the shell.
+SESSION="salloc-${PARTITION}-$$"
+tmux new-session -d -s "$SESSION"
+tmux send-keys -t "$SESSION" "$SALLOC_CMD" Enter
+echo "### tmux session: $SESSION"
+echo "### Reattach with: tmux attach -t $SESSION"
+tmux attach -t "$SESSION"

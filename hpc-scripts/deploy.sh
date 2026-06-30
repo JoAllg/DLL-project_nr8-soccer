@@ -22,6 +22,9 @@ sed -e "s|{{HPC_HOST}}|${HPC_HOST}|g" \
     -e "s|{{REMOTE_SCRIPTS_DIR}}|${REMOTE_SCRIPTS_DIR}|g" \
     "$SCRIPT_DIR/hpc_config.template" > "$HPC_CONFIG"
 
+# cp "$SCRIPT_DIR/connect-hpc-node.sh" "$HOME/.ssh/connect-hpc-node.sh"
+# chmod +x "$HOME/.ssh/connect-hpc-node.sh"
+
 INCLUDE_LINE="Include ${HPC_CONFIG}"
 SSH_CONFIG="$HOME/.ssh/config"
 mkdir -p "$HOME/.ssh"
@@ -161,6 +164,9 @@ echo "  ssh hpc.sinfo      - Show resources & your jobs"
 echo "  ssh hpc.salloc     - Reserve compute nodes (interactive)"
 echo "  ssh hpc.sbatch     - Submit batch job"
 echo "  ssh hpc.srun       - Run training on a running node"
-echo "  ssh hpc.slogin     - Login to a running node"
 echo "  ssh hpc.scancel    - Cancel a job"
 echo "  ssh hpc.scontrol   - Show job details"
+echo "  ssh hpc.slogin     - Login to a running node"
+# echo "  ssh hpc.node       - SSH to compute node (newest job)"
+# echo "  ssh hpc.node.JOBID - SSH to compute node (specific job)"
+echo "  ssh hpc.tunnel     - Start VSCode/Cursor tunnel"

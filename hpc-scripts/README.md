@@ -19,12 +19,13 @@ After deployment, the following SSH aliases are available:
 |---|---|
 | `ssh hpc` | Login shell on the login node |
 | `ssh hpc.sinfo` | Show available resources and your queued jobs |
-| `ssh hpc.salloc` | Interactively reserve compute nodes |
+| `ssh hpc.salloc` | Interactively reserve compute nodes (runs inside tmux; stop via `scancel`, reattach via `tmux attach -t <session>`, or use `ssh hpc.slogin` to log into the running node) |
 | `ssh hpc.sbatch` | Submit a batch job running JOB_CMD |
 | `ssh hpc.srun` | Run the JOB_CMD on an allocated node |
-| `ssh hpc.slogin` | Open a shell on a running/allocated node |
 | `ssh hpc.scancel` | Cancel a job |
 | `ssh hpc.scontrol` | Show details of a job |
+| `ssh hpc.slogin` | Open a shell on a running/allocated node |
+| `ssh hpc.tunnel` | Start a VS Code / Cursor remote tunnel on a running job (authenticates via GitHub, names the machine `codetunnel` or `cursortunnel`). Runs in tmux session. |
 
 ## Links
 

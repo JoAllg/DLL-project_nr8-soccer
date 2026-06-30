@@ -2,8 +2,23 @@
 name = "dll-project-soccer"
 version = "0.1.0"
 description = "Transformer-based RL policies for cooperative soccer"
+authors = [{ name = "abc", email = "111@222.333" }]
 requires-python = ">=3.10"
 dependencies = [
+    "setuptools<81",
     "torch",
     "numpy",
+    "rsoccer-gym",
+    "gymnasium>=1.0.0",
+    "rc-robosim>=1.2",
+    "pygame>=2.6.1",
+]
+
+[tool.uv.sources]
+rsoccer-gym = { git = "https://github.com/robocin/rSoccer.git" }
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.9",
+    "ruff>=0.15.20",
 ]
