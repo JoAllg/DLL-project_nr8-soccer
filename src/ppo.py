@@ -24,6 +24,10 @@ from torch.utils.tensorboard.writer import SummaryWriter
 
 import utils
 
+# import environments
+import rsoccer_gym
+import myenvs
+
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
