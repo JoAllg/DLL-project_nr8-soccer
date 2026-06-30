@@ -52,7 +52,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "HalfCheetah-v4"
     """the id of the environment"""
-    total_timesteps: int = 1000000
+    total_timesteps: int = 8000000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
@@ -84,6 +84,8 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: Optional[float] = None
     """the target KL divergence threshold"""
+    rpo_alpha: float = 0.5 # Best values between 0.5 to 0.1 
+    """the alpha parameter for RPO"""
 
     # to be filled in runtime
     batch_size: int = 0
@@ -120,8 +122,9 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 
 
 class Agent(nn.Module):
-    def __init__(self, envs):
+    def __init__(self, envs, rpo_alpha):
         super().__init__()
+        self.rpo_alpha = rpo_alpha
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)),
             nn.Tanh(),
@@ -148,6 +151,11 @@ class Agent(nn.Module):
         probs = Normal(action_mean, action_std)
         if action is None:
             action = probs.sample()
+        else:  # new to RPO
+            # sample again to add stochasticity to the policy
+            z = torch.FloatTensor(action_mean.shape).uniform_(-self.rpo_alpha, self.rpo_alpha).to(device)
+            action_mean = action_mean + z
+            probs = Normal(action_mean, action_std)
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
 
 
@@ -189,7 +197,7 @@ if __name__ == "__main__":
     print("envs.single_action_space.shape:", envs.single_action_space.shape)
     print("envs.single_observation_space.shape:", envs.single_observation_space.shape)
 
-    agent = Agent(envs).to(device)
+    agent = Agent(envs, args.rpo_alpha).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)  # pyright: ignore[reportPrivateImportUsage]
 
     # ALGO Logic: Storage setup
