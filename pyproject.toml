@@ -3,16 +3,16 @@ name = "dll-project-soccer"
 version = "0.1.0"
 description = "Transformer-based RL policies for cooperative soccer"
 authors = [{ name = "abc", email = "111@222.333" }]
-requires-python = ">=3.10"
+requires-python = "==3.10.*"
 dependencies = [
-    "setuptools<81",
-    "torch==2.4.1",
-    "numpy",
+    "rc-robosim>=1.2",
     "rsoccer-gym",
     "gymnasium>=0.29.1",
     # "gym==0.23.1",
-    "rc-robosim>=1.2",
     "pygame>=2.1",
+    "setuptools<81",
+    "torch==2.4.1",
+    "numpy",
     "tensorboard>=2.10.0",
     "wandb>=0.13.11",
     "moviepy>=1.0.3",
