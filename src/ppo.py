@@ -241,15 +241,16 @@ if __name__ == "__main__":
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, reward, terminations, truncations, infos = envs.step(action.cpu().numpy())
             next_done = np.logical_or(terminations, truncations)
-            rewards[step] = torch.tensor(reward).to(device).view(-1)
+            rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
 
-            if "final_info" in infos:
-                for info in infos["final_info"]:
-                    if info and "episode" in info:
-                        print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                        writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                        writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+            #fixed logging
+            if "episode" in infos:
+                for i, r in enumerate(infos["episode"]["r"]):
+                    if infos["_episode"][i]:
+                        print(f"global_step={global_step}, episodic_return={r:.2f}")
+                        writer.add_scalar("charts/episodic_return", r, global_step)
+                        writer.add_scalar("charts/episodic_length", infos["episode"]["l"][i], global_step)
 
         # bootstrap value if not done
         with torch.no_grad():

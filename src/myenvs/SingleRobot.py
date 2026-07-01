@@ -5,37 +5,125 @@ from rsoccer_gym.ssl.ssl_gym_base import SSLBaseEnv
 
 
 class SSLSingleRobot(SSLBaseEnv):
+    """
+    Single robot SSL environment for learning to kick a ball into a goal.
+
+    Observation space: [ball_x, ball_y, robot_x, robot_y]
+    Action space: [v_x, v_y, v_theta, kick, dribbler] (normalized to [-1, 1])
+
+    Reward:
+        - Shaped: robot-to-ball proximity + ball progress toward goal (delta)
+        - Goal: +2000 bonus on scoring
+    """
+
+    # Physics constants
+    MAX_V = 2.5       # m/s
+    MAX_W = 10.0      # rad/s
+    KICK_SPEED = 10.0 # m/s
+
     def __init__(self, render_mode=None):
-        field = 0 # SSL Division A Field
-        super().__init__(field_type=0, n_robots_blue=1,
-                         n_robots_yellow=0, time_step=0.025,
-                         render_mode=render_mode)
-        n_obs = 4 # Ball x,y and Robot x, y
-        self.action_space = Box(low=-1, high=1, shape=(2, ))
-        self.observation_space = Box(low=-self.field.length/2,\
-            high=self.field.length/2,shape=(n_obs, ))
+        super().__init__(
+            field_type=0,       # SSL Division A field
+            n_robots_blue=1,
+            n_robots_yellow=0,
+            time_step=0.025,
+            render_mode=render_mode
+        )
+        self.action_space = Box(low=-1, high=1, shape=(5,))
+        self.observation_space = Box(
+            low=-self.field.length / 2,
+            high=self.field.length / 2,
+            shape=(4,)  # ball x,y and robot x,y
+        )
+        self.episode_steps = 0
+        self.max_steps = 1200
 
     def _frame_to_observations(self):
-        ball, robot = self.frame.ball, self.frame.robots_blue[0]
-        return np.array([ball.x, ball.y, robot.x, robot.y],
-                        dtype=np.float32)
+        ball = self.frame.ball
+        robot = self.frame.robots_blue[0]
+        return np.array([ball.x, ball.y, robot.x, robot.y], dtype=np.float32)
 
     def _get_commands(self, actions):
-        return [Robot(yellow=False, id=0,
-                      v_x=actions[0], v_y=actions[1])]
+        angle_rad = np.deg2rad(self.frame.robots_blue[0].theta)
+
+        # Denormalize and convert from global to local robot frame
+        v_x = actions[0] * self.MAX_V
+        v_y = actions[1] * self.MAX_V
+        v_x_local = v_x * np.cos(angle_rad) + v_y * np.sin(angle_rad)
+        v_y_local = -v_x * np.sin(angle_rad) + v_y * np.cos(angle_rad)
+
+        return [Robot(
+            yellow=False,
+            id=0,
+            v_x=v_x_local,
+            v_y=v_y_local,
+            v_theta=actions[2] * self.MAX_W,
+            kick_v_x=self.KICK_SPEED if actions[3] > 0 else 0.0,
+            dribbler=actions[4] > 0
+        )]
 
     def _calculate_reward_and_done(self):
-        if self.frame.ball.x > self.field.length / 2 \
-            and abs(self.frame.ball.y) < self.field.goal_width / 2:
-            reward, done = 1, True
-        else:
-            reward, done = 0, False
-        return reward, done
-    
-    def _get_initial_positions_frame(self):
-        pos_frame: Frame = Frame()
-        pos_frame.ball = Ball(x=(self.field.length/2)\
-            - self.field.penalty_length, y=0.)
-        pos_frame.robots_blue[0] = Robot(x=0., y=0., theta=0,)
-        return pos_frame
+        self.episode_steps += 1
+        if self.episode_steps >= self.max_steps:
+            self.episode_steps = 0
+            return 0, True
 
+        ball = self.frame.ball
+        robot = self.frame.robots_blue[0]
+        goal_x = self.field.length / 2
+
+        # Reward 1: robot proximity to ball (normalized)
+        dist_robot_to_ball = np.linalg.norm([robot.x - ball.x, robot.y - ball.y])
+        reward_proximity = 1 - dist_robot_to_ball / self.field.length
+
+        # Reward 2: ball progress toward goal (delta distance, normalized)
+        if self.last_frame is None:
+            reward_progress = 0
+        else:
+            last_ball = self.last_frame.ball
+            current_dist = np.linalg.norm([goal_x - ball.x, ball.y])
+            last_dist = np.linalg.norm([goal_x - last_ball.x, last_ball.y])
+            reward_progress = (last_dist - current_dist) / self.field.length
+
+        # Check goal condition
+        if ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2:
+            return 2000 + 0.3 * reward_proximity + 0.7 * reward_progress, True
+
+        return 0.3 * reward_proximity + 0.7 * reward_progress, False
+
+    def _get_initial_positions_frame(self):
+        self.episode_steps = 0
+        pos_frame = Frame()
+        fl = self.field.length
+        gw = self.field.goal_width
+
+        # Ball spawns in the attacking third, near the goal
+        pos_frame.ball = Ball(
+            x=np.random.uniform(fl / 3, fl / 2),
+            y=np.random.uniform(-gw, gw)
+        )
+
+        # Robot spawns behind the ball (lower x) in the same area
+        pos_frame.robots_blue[0] = Robot(
+            x=np.random.uniform(0, pos_frame.ball.x),
+            y=np.random.uniform(-gw, gw),
+            theta=np.random.uniform(0, 2 * np.pi)
+        )
+
+        # Ensure robot doesn't spawn too close to ball
+        dist = np.linalg.norm([
+            pos_frame.robots_blue[0].x - pos_frame.ball.x,
+            pos_frame.robots_blue[0].y - pos_frame.ball.y
+        ])
+        while dist < 0.5:
+            pos_frame.robots_blue[0] = Robot(
+                x=np.random.uniform(0, pos_frame.ball.x),
+                y=np.random.uniform(-gw, gw),
+                theta=np.random.uniform(0, 2 * np.pi)
+            )
+            dist = np.linalg.norm([
+                pos_frame.robots_blue[0].x - pos_frame.ball.x,
+                pos_frame.robots_blue[0].y - pos_frame.ball.y
+            ])
+
+        return pos_frame
