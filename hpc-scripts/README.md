@@ -4,7 +4,7 @@ Deploy and Slurm helper scripts for [BwUniCluster 3.0](https://wiki.bwhpc.de/e/B
 
 ## Setup
 
-1. Copy `.env.example` → `.env` and fill in your credentials (`HPC_USER`, `HPC_IDENTITY`, etc.)
+1. Copy `.env.example` → `.env` and fill in your credentials (`HPC_USER`, `HPC_IDENTITY`, `JUMPHOST_USER`, `JUMPHOST_HOST`, `JUMPHOST_IDENTITY`, etc. — identity vars accept a single path or a bash array of paths)
 2. Edit `.env.remote` with your remote workspace/repo settings
 3. Place your `deploy_ed25519` GitHub deploy key in this folder
 4. Run `./deploy.sh`

@@ -8,7 +8,6 @@ dependencies = [
     "rc-robosim>=1.2",
     "rsoccer-gym",
     "gymnasium>=0.29.1",
-    # "gym==0.23.1",
     "pygame>=2.1",
     "setuptools<81",
     "torch==2.4.1",

@@ -61,12 +61,21 @@ Host hpc.tunnel
 #   LogLevel ERROR
 #   RequestTTY yes
 
+# Uni Freiburg login node — jump host for BwUniCluster
+Host jumphost
+  HostName {{JUMPHOST_HOST}}
+  User {{JUMPHOST_USER}}
+{{JUMPHOST_IDENTITY_LINES}}
+  IdentitiesOnly yes
+  LogLevel ERROR
+
 Host hpc hpc.* !hpc.node !hpc.node.*
   HostName {{HPC_HOST}}
   User {{HPC_USER}}
   Port 22
-  IdentityFile {{HPC_IDENTITY}}
+{{HPC_IDENTITY_LINES}}
   IdentitiesOnly yes
+  ProxyJump jumphost
   LogLevel ERROR
   ServerAliveInterval 60
   ServerAliveCountMax 10

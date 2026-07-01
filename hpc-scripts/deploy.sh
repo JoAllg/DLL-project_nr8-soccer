@@ -16,10 +16,36 @@ HPC="hpc"
 echo "=== Setting up SSH config ==="
 
 HPC_CONFIG="$HOME/.ssh/hpc_config"
+
+# Prints "  IdentityFile <path>" for each key in $1, which may be a plain
+# string (single key) or a bash array (multiple keys).
+identity_lines() {
+    local var_name="$1"
+    if declare -p "$var_name" 2>/dev/null | grep -q '^declare -a'; then
+        local -n arr_ref="$var_name"
+        for id in "${arr_ref[@]}"; do
+            printf '  IdentityFile %s\n' "$id"
+        done
+    else
+        printf '  IdentityFile %s\n' "${!var_name}"
+    fi
+}
+
+HPC_IDENTITY_FILE=$(mktemp)
+JUMPHOST_IDENTITY_FILE=$(mktemp)
+trap 'rm -f "$HPC_IDENTITY_FILE" "$JUMPHOST_IDENTITY_FILE"' EXIT
+identity_lines HPC_IDENTITY > "$HPC_IDENTITY_FILE"
+identity_lines JUMPHOST_IDENTITY > "$JUMPHOST_IDENTITY_FILE"
+
 sed -e "s|{{HPC_HOST}}|${HPC_HOST}|g" \
     -e "s|{{HPC_USER}}|${HPC_USER}|g" \
-    -e "s|{{HPC_IDENTITY}}|${HPC_IDENTITY}|g" \
+    -e "s|{{JUMPHOST_HOST}}|${JUMPHOST_HOST}|g" \
+    -e "s|{{JUMPHOST_USER}}|${JUMPHOST_USER}|g" \
     -e "s|{{REMOTE_SCRIPTS_DIR}}|${REMOTE_SCRIPTS_DIR}|g" \
+    -e "/{{HPC_IDENTITY_LINES}}/r ${HPC_IDENTITY_FILE}" \
+    -e "/{{HPC_IDENTITY_LINES}}/d" \
+    -e "/{{JUMPHOST_IDENTITY_LINES}}/r ${JUMPHOST_IDENTITY_FILE}" \
+    -e "/{{JUMPHOST_IDENTITY_LINES}}/d" \
     "$SCRIPT_DIR/hpc_config.template" > "$HPC_CONFIG"
 
 # cp "$SCRIPT_DIR/connect-hpc-node.sh" "$HOME/.ssh/connect-hpc-node.sh"
