@@ -1,8 +1,5 @@
 # Issues
-- Transformer
-  - PPO inputs all environments vectorized into the policy/ciritc model. Does this make sense for our rSoccer game and transformer model?
-  - for transformers the learning rate annealing should be replaced with Cosine Annealing with Warmup (without restarts)
-- RPO is better than PPO https://docs.cleanrl.dev/rl-algorithms/rpo/#overview (in most cases, in 4 cases with worse results use rho_alpha=0.1)
+
 
 
 # Milestones
@@ -15,7 +12,7 @@
    6. Add Transformer Encorder (Joshua)
 2. Increasing Team sizes (stepwise), adapting Rewards, improving lea
    - ~Parallelize environments (simulation) with random actions and step them/backropagate in steps (policy gradient).~
-   - Rewards that faciliate/shape cooperative teamwork (e.g. robots should not block each other -> penalty on low distance) (c.f. rewards https://github.com/robocin/rSoccer/blob/main/rsoccer_gym/ssl/README.md)
+   - Rewards that faciliate/shape cooperative teamwork
 3. ?
 	- Evaluate cooperation and generalization to different team sizes (optional!)
 4. Poster presentation DIN A0
@@ -23,6 +20,3 @@
    - half-selfexplainatory poster
 
 
-## TODOs
-- LLM usage declaration in the code on a module level or file level
-- open about how we split the work, split as clean as possible. Track worktime?
