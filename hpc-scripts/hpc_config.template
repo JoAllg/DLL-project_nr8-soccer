@@ -79,3 +79,7 @@ Host hpc hpc.* !hpc.node !hpc.node.*
   LogLevel ERROR
   ServerAliveInterval 60
   ServerAliveCountMax 10
+  # Reuse one authenticated connection so the FIDO key is only touched once
+  ControlMaster auto
+  ControlPath ~/.ssh/control-%r@%h:%p
+  ControlPersist 8h

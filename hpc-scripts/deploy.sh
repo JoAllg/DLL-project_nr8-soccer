@@ -66,6 +66,13 @@ else
     echo "  hpc_config already included in ~/.ssh/config"
 fi
 
+# Retire any running control master so the new config applies to future
+# connections. Unlike -O exit, -O stop keeps existing sessions alive; the
+# old master exits once the last of them closes.
+if ssh -O stop "$HPC" 2>/dev/null; then
+    echo "  Control master retired; next connection uses the new config"
+fi
+
 ###############################################################################
 # 2. Copy scripts and deploy key to remote
 ###############################################################################
@@ -156,6 +163,10 @@ ssh "$HPC" "
             echo \"  Workspace extended (was \${REMAINING:-0} days remaining)\"
         else
             echo \"  Workspace has \$REMAINING days remaining, skipping extension\"
+        fi
+        EXTENSIONS=\$(ws_list \$WORKSPACE_NAME 2>/dev/null | awk -F': *' '/available extensions/ {print \$NF}')
+        if [ \"\$EXTENSIONS\" = \"0\" ]; then
+            echo \"  WARNING: no workspace extensions left - it cannot be extended past its current expiry\"
         fi
     else
         echo '  Allocating workspace...'
