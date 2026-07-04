@@ -57,7 +57,7 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 8
     """the number of parallel game environments"""
-    num_steps: int = 2048
+    num_steps: int = 4096 # was 2048
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 32
     """the number of mini-batches"""
@@ -84,10 +84,11 @@ class Args:
     norm_adv: bool = True
     """Toggles advantages normalization"""
     clip_coef: float = 0.1
+    clip_coef: float = 0.1
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
-    ent_coef: float = 0.0
+    ent_coef: float = 0.01
     """initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)"""
     # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
     # a decaying entropy bonus buys exploration early (finding ball/goal at all)
