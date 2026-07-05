@@ -81,9 +81,10 @@ class TokenLayout:
 
 
 TOKEN_LAYOUTS: dict[str, TokenLayout] = {
-    # myenvs SSLSingleRobot: [ball_x, ball_y, robot_x, robot_y]
+    # myenvs SSLSingleRobot: ball [x, y, vx, vy],
+    # robot [x, y, sin(θ), cos(θ), vx, vy, vθ]
     "SSLSingleRobot-v0": TokenLayout(
-        ball_dim=2, n_teammates=1, teammate_dim=2,
+        ball_dim=4, n_teammates=1, teammate_dim=7,
         n_opponents=0, opponent_dim=5, n_controlled=1,
     ),
     # rSoccer VSS 3v3; only blue robot 0 is commanded, teammates run on OU noise
