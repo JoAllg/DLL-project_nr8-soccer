@@ -1,9 +1,43 @@
 import os
+import glob
 import torch
 import random
 import numpy as np
 import gc
 import gymnasium as gym
+
+def log_new_videos(video_dir, seen, sizes, step):
+    """Upload freshly-recorded RecordVideo files to W&B, tagged with `step`.
+
+    RecordVideo (on the idx==0 env) runs inside an AsyncVectorEnv subprocess, so we
+    cannot upload from its close callback — wandb.run only lives in the main process.
+    Instead we poll `video_dir` from the training loop. moviepy writes the .mp4
+    progressively, so a file is only uploaded once its byte size is stable across two
+    polls (guarding against half-written files); `sizes` carries the previous poll's
+    sizes and `seen` the filenames already uploaded.
+
+    `step` is logged as the `media/video_step` metric (the video's step_metric, defined
+    at wandb.init) rather than passed as wandb.log(step=...), which sync_tensorboard
+    ignores.
+    """
+    import wandb
+
+    if not os.path.isdir(video_dir):
+        return
+    for path in sorted(glob.glob(os.path.join(video_dir, "*.mp4"))):
+        if path in seen:
+            continue
+        try:
+            cur = os.path.getsize(path)
+        except OSError:
+            continue
+        if sizes.get(path) == cur and cur > 0:
+            wandb.log({"media/video": wandb.Video(path, format="mp4"), "media/video_step": step})
+            seen.add(path)
+            sizes.pop(path, None)
+        else:
+            sizes[path] = cur
+
 
 def set_seed(seed: int, deterministic: bool = False):
     """
