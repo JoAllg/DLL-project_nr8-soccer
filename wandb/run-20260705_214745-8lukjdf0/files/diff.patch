@@ -1,0 +1,65 @@
+diff --git a/hpc-scripts/deploy.sh b/hpc-scripts/deploy.sh
+index 9f590fa..52efc5c 100755
+--- a/hpc-scripts/deploy.sh
++++ b/hpc-scripts/deploy.sh
+@@ -189,8 +189,7 @@ ssh "$HPC" "
+     export PATH=\"\$HOME/.local/bin:\$PATH\"
+     WS=\$(ws_find \$WORKSPACE_NAME)
+     if [ -d \"\$WS/\$REPO_NAME\" ]; then
+-        echo '  Repository exists, pulling latest...'
+-        cd \"\$WS/\$REPO_NAME\" && git checkout \${BRANCH:-main} && git pull
++        echo '  Repository exists...'
+     else
+         echo '  Cloning repository...'
+         git clone --template= --branch \${BRANCH:-main} \$REPO_URL \"\$WS/\$REPO_NAME\"
+diff --git a/hpc-scripts/run.job.template b/hpc-scripts/run.job.template
+index b8e9312..7e8ffdb 100644
+--- a/hpc-scripts/run.job.template
++++ b/hpc-scripts/run.job.template
+@@ -20,10 +20,22 @@ ${MAIL_DIRECTIVES}
+ source "$HOME/hpc-scripts/.env.remote"
+ cd "$REPO_DIR" || exit 1
+ 
+-# 1. Get the requested code (branch chosen interactively)
+-echo "### Checking out branch '${BRANCH}'..."
+-git checkout "${BRANCH}"
+-git pull
++# 1. Run from a private git worktree so concurrent jobs never race on $REPO_DIR's
++# working tree/index, and stray local state can never block the checkout. The
++# worktree tracks origin/${BRANCH} *detached* rather than checking out "${BRANCH}"
++# by name — git refuses to check out a branch that's already checked out in
++# another worktree of the same repo, and $REPO_DIR itself flips between
++# "${BRANCH}" and a runs/<date>+<node> branch across the run lifecycle. Fetching
++# then checking out origin/${BRANCH}'s tip into a brand-new directory already is
++# the "force checkout, then pull" — there's no local state left to conflict with.
++RUN_DIR="$WORKSPACE/job-runs/${SLURM_JOB_ID}"
++mkdir -p "$(dirname "$RUN_DIR")"
++git worktree prune
++echo "### Fetching '${BRANCH}' and checking out a private worktree..."
++git fetch origin "${BRANCH}"
++git worktree add --detach "$RUN_DIR" "origin/${BRANCH}"
++cd "$RUN_DIR" || exit 1
++trap 'cd "$REPO_DIR" 2>/dev/null; git worktree remove --force "$RUN_DIR" 2>/dev/null' EXIT
+ 
+ # 2. Sync the environment (nodes have internet)
+ echo "### Syncing uv environment..."
+@@ -39,10 +51,16 @@ NODE="${SLURMD_NODENAME:-$(hostname -s)}"
+ DATE="$(date +%Y-%m-%d)"
+ RUN_BRANCH="runs/${DATE}+${NODE}"
+ echo "### Archiving run to branch '$RUN_BRANCH' (command exit ${RUN_STATUS})..."
+-# The live log lives in $LOG_DIR (persists across branch checkouts); copy it into the
+-# repo too so this run's branch carries its own log alongside run.sbatch.
+-cp "$LOG_DIR/slurm-${SLURM_JOB_ID}.out" "$REPO_DIR/" 2>/dev/null || true
++# The live log lives in $LOG_DIR (persists across branch checkouts); copy it into
++# the worktree too so this run's branch carries its own log. Also pull in
++# run.sbatch itself (this script, at $0) since it lives in $REPO_DIR, not in this
++# worktree, and wouldn't otherwise be picked up by `git add -A` below.
++cp "$LOG_DIR/slurm-${SLURM_JOB_ID}.out" . 2>/dev/null || true
++cp "$0" ./run.sbatch 2>/dev/null || true
+ git checkout -B "$RUN_BRANCH"
+ git add -A
+ git commit -m "run on ${NODE} ${DATE} (exit ${RUN_STATUS}); see run.sbatch for the command" || true
+ git push -u origin "$RUN_BRANCH"
++
++# 5. Clean up the private worktree (handled by the EXIT trap set in step 1, which
++# fires here on normal exit too).

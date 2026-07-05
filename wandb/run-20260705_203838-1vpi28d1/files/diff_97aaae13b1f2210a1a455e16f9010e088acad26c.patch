@@ -1,0 +1,348 @@
+diff --git a/hpc-scripts/.env.remote.example b/hpc-scripts/.env.remote.example
+index ec83cc5..db37d35 100644
+--- a/hpc-scripts/.env.remote.example
++++ b/hpc-scripts/.env.remote.example
+@@ -7,8 +7,9 @@
+ 
+ # Project
+ export WORKSPACE_NAME="data"
+-export WORKSPACE_DAYS=60
++export WORKSPACE_DAYS=60 # maximum amount
+ export WORKSPACE_EMAIL="<user>@tf.uni-freiburg.de"
++
+ WORKSPACE="$(ws_find "$WORKSPACE_NAME" 2>/dev/null)"
+ export WORKSPACE
+ 
+@@ -19,9 +20,8 @@ export BRANCH="main"
+ 
+ export SCRIPTS_DIR="$HOME/hpc-scripts"
+ 
+-export JOB_CMD="uv run python main.py"
+-
+-export UV_LINK_MODE=copy  # UV can not hardlink libraries if cache and environment are on different drives. Use copy instead
++# export UV_LINK_MODE=copy  # UV can not hardlink libraries if cache and environment are on different drives. Use copy instead
++export UV_CACHE_DIR="$WORKSPACE/.uv"
+ 
+ # Aliases
+ alias smi='nvidia-smi'
+diff --git a/hpc-scripts/README.md b/hpc-scripts/README.md
+index a390a0e..0616c2a 100644
+--- a/hpc-scripts/README.md
++++ b/hpc-scripts/README.md
+@@ -11,6 +11,23 @@ Deploy and Slurm helper scripts for [BwUniCluster 3.0](https://wiki.bwhpc.de/e/B
+ 
+ `deploy.sh` sets up the local SSH config, copies scripts and the deploy key to the cluster, installs `uv`, allocates a Lustre workspace, and clones/updates the repository.
+ 
++## Run archiving (git identity & deploy key)
++
++`hpc.srun` and `hpc.sbatch` automatically commit and push each run to a
++`runs/<date>+<node>` branch. Two one-time prerequisites:
++
++1. **Git identity** on the cluster (otherwise the commit fails):
++
++   ```bash
++   ssh hpc
++   git config --global user.name  "Your Name"
++   git config --global user.email "you@example.com"
++   ```
++
++   (Or set it per-repo inside `$REPO_DIR`.)
++
++2. **Write access for the deploy key** — The GitHub deploy key, need Write Access, otherwise the `git push` to the run branch is rejected.
++
+ ## SSH Commands
+ 
+ After deployment, the following SSH aliases are available:
+@@ -20,8 +37,8 @@ After deployment, the following SSH aliases are available:
+ | `ssh hpc` | Login shell on the login node |
+ | `ssh hpc.sinfo` | Show available resources and your queued jobs |
+ | `ssh hpc.salloc` | Interactively reserve compute nodes (runs inside tmux; stop via `scancel`, reattach via `tmux attach -t <session>`, or use `ssh hpc.login` to log into the running node) |
+-| `ssh hpc.sbatch` | Submit a batch job running JOB_CMD |
+-| `ssh hpc.srun` | Run the JOB_CMD on an allocated node |
++| `ssh hpc.sbatch` | Submit a batch job. Prompts for a command and branch, fills the `run.job.template` Slurm script, and submits it. The job checks out the branch, `git pull`s, `uv sync`s, runs the command, then **automatically commits and pushes a `runs/<name>+<date>` branch** with the filled job script and all outputs. |
++| `ssh hpc.srun` | Run a command on an already-allocated node. Same flow as `hpc.sbatch`.|
+ | `ssh hpc.scancel` | Cancel a job |
+ | `ssh hpc.scontrol` | Show details of a job |
+ | `ssh hpc.login` | Open a shell on a running/allocated node |
+diff --git a/hpc-scripts/deploy.sh b/hpc-scripts/deploy.sh
+index f9e1f1b..f711314 100755
+--- a/hpc-scripts/deploy.sh
++++ b/hpc-scripts/deploy.sh
+@@ -91,7 +91,7 @@ retry() {
+ 
+ ssh "$HPC" "mkdir -p ${REMOTE_SCRIPTS_DIR} ~/.ssh"
+ 
+-retry rsync -avhz --delete --chmod=F755 --exclude='deploy.sh' --exclude='*.template' --include='*.sh' --include='.env.remote' --exclude='*' \
++retry rsync -avhz --delete --chmod=F755 --exclude='deploy.sh' --include='run.job.template' --exclude='*.template' --include='*.sh' --include='.env.remote' --exclude='*' \
+     "$SCRIPT_DIR/" "$HPC:${REMOTE_SCRIPTS_DIR}/"
+ 
+ retry rsync -av --chmod=F600 "$SCRIPT_DIR/deploy_ed25519" "$HPC:~/.ssh/deploy_ed25519"
+diff --git a/hpc-scripts/run.job.template b/hpc-scripts/run.job.template
+new file mode 100644
+index 0000000..a5c5c84
+--- /dev/null
++++ b/hpc-scripts/run.job.template
+@@ -0,0 +1,44 @@
++#!/bin/bash
++# =========================
++# bwHPC deployment and Slurm scripts (2026)
++# Joshua Allgeier <allgeier@informatik.uni-freiburg.de>
++# =========================
++# Slurm job template. Placeholders (${NAME}) are filled interactively by
++# srun.sh / sbatch.sh via envsubst; the filled result is written to
++# $REPO_DIR/run.sbatch and committed to the run branch as the run's record.
++#
++# The #SBATCH header is honoured by sbatch and ignored by srun (which attaches
++# to an already-running allocation); either way the body below is what runs.
++#SBATCH --partition=${PARTITION}
++#SBATCH --job-name=${JOBNAME}
++#SBATCH --time=${TIME}
++#SBATCH --chdir=${REPO_DIR}
++${RESOURCE_DIRECTIVES}
++${MAIL_DIRECTIVES}
++
++source "$HOME/hpc-scripts/.env.remote"
++cd "$REPO_DIR" || exit 1
++
++# 1. Get the requested code (branch chosen interactively)
++echo "### Checking out branch '${BRANCH}'..."
++git checkout "${BRANCH}"
++git pull
++
++# 2. Sync the environment (nodes have internet)
++echo "### Syncing uv environment..."
++uv sync --all-extras
++
++# 3. Run the command (see this script / run.sbatch for the exact invocation)
++echo "### Running command..."
++${COMMAND}
++RUN_STATUS=$?
++
++# 4. Snapshot the run script and all outputs onto a per-run branch
++NODE="${SLURMD_NODENAME:-$(hostname -s)}"
++DATE="$(date +%Y-%m-%d)"
++RUN_BRANCH="runs/${DATE}+${NODE}"
++echo "### Archiving run to branch '$RUN_BRANCH' (command exit ${RUN_STATUS})..."
++git checkout -B "$RUN_BRANCH"
++git add -A
++git commit -m "run on ${NODE} ${DATE} (exit ${RUN_STATUS}); see run.sbatch for the command" || true
++git push -u origin "$RUN_BRANCH"
+diff --git a/hpc-scripts/sbatch.sh b/hpc-scripts/sbatch.sh
+index 032b1f2..53e293c 100644
+--- a/hpc-scripts/sbatch.sh
++++ b/hpc-scripts/sbatch.sh
+@@ -168,23 +168,42 @@ TIME=${INPUT_TIME:-$MAX_TIME}
+ read -p "Job name [sbatch]: " INPUT_JOBNAME
+ JOBNAME=${INPUT_JOBNAME:-sbatch}
+ 
+-# Build mail flags for unavailable partitions
+-MAIL_FLAGS=""
++read -p "Command [${JOB_CMD:-uv run python main.py}]: " INPUT_CMD
++export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run python main.py}}
++
++read -p "Branch [${BRANCH:-main}]: " INPUT_BRANCH
++export BRANCH=${INPUT_BRANCH:-${BRANCH:-main}}
++
++# Build the #SBATCH resource directives for the template
++if [ "$IS_CPU" = "true" ]; then
++    RESOURCE_DIRECTIVES="#SBATCH --ntasks=$CPUS"
++    [ -n "$MEM_FLAG" ] && RESOURCE_DIRECTIVES="$RESOURCE_DIRECTIVES"$'\n'"#SBATCH $MEM_FLAG"
++else
++    RESOURCE_DIRECTIVES="#SBATCH --gres=gpu:$GPUS"
++fi
++export RESOURCE_DIRECTIVES
++
++# Build mail directives for unavailable partitions
++MAIL_DIRECTIVES=""
+ if $IS_UNAVAILABLE; then
+-    MAIL_FLAGS="--mail-type=BEGIN"
+-    [ -n "$WORKSPACE_EMAIL" ] && MAIL_FLAGS="$MAIL_FLAGS --mail-user=$WORKSPACE_EMAIL"
++    MAIL_DIRECTIVES="#SBATCH --mail-type=BEGIN"
++    [ -n "$WORKSPACE_EMAIL" ] && MAIL_DIRECTIVES="$MAIL_DIRECTIVES"$'\n'"#SBATCH --mail-user=$WORKSPACE_EMAIL"
+ fi
++export MAIL_DIRECTIVES
++
++# Fill the job template and submit it
++export PARTITION JOBNAME TIME REPO_DIR
++RUN_SCRIPT="$REPO_DIR/run.sbatch"
++envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
++    < "$SCRIPTS_DIR/run.job.template" > "$RUN_SCRIPT"
+ 
+ echo ""
+ if [ "$IS_CPU" = "true" ]; then
+     echo "### Submitting: $PARTITION, ${CPUS} CPU(s), $TIME, job=$JOBNAME"
+-    sbatch -p "$PARTITION" --ntasks="$CPUS" $MEM_FLAG --time="$TIME" --job-name="$JOBNAME" $MAIL_FLAGS \
+-        --wrap="source \"$HOME/hpc-scripts/.env.remote\" && cd \"$REPO_DIR\" && ${JOB_CMD:-uv run python main.py}"
+ else
+     echo "### Submitting: $PARTITION, ${GPUS} GPU(s), $TIME, job=$JOBNAME"
+-    sbatch -p "$PARTITION" --gres=gpu:"$GPUS" --time="$TIME" --job-name="$JOBNAME" $MAIL_FLAGS \
+-        --wrap="source \"$HOME/hpc-scripts/.env.remote\" && cd \"$REPO_DIR\" && ${JOB_CMD:-uv run python main.py}"
+ fi
++sbatch "$RUN_SCRIPT"
+ 
+ if $IS_UNAVAILABLE; then
+     echo "### Note: Partition busy — you will be emailed at $WORKSPACE_EMAIL when the job starts."
+diff --git a/hpc-scripts/srun.sh b/hpc-scripts/srun.sh
+index a8f80c6..28b89e8 100755
+--- a/hpc-scripts/srun.sh
++++ b/hpc-scripts/srun.sh
+@@ -7,15 +7,7 @@ source "$HOME/hpc-scripts/.env.remote" 2>/dev/null
+ 
+ cd "$REPO_DIR" || { echo "Repository not found at $REPO_DIR"; exec bash -i; }
+ 
+-# Update code and environment on login node (has internet access)
+-echo "### Updating repository..."
+-git pull
+-
+-echo "### Syncing uv environment..."
+-uv sync --all-extras
+-
+ # Show running jobs
+-echo ""
+ echo "### Your running jobs:"
+ JOBS=($(squeue -u "$USER" -t RUNNING -h -o "%i"))
+ if [ ${#JOBS[@]} -eq 0 ]; then
+@@ -41,10 +33,24 @@ else
+     JOBID=${JOBS[$((SEL-1))]}
+ fi
+ 
++# Gather the run inputs (git pull, uv sync and the run itself happen on the node)
++echo ""
++read -p "Command [${JOB_CMD:-uv run src/ppo.py --capture-video --agent_type transformer --track
++}]: " INPUT_CMD
++export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run src/ppo.py --capture-video --agent_type transformer --track
++}}
++
++read -p "Branch [${BRANCH:-main}]: " INPUT_BRANCH
++export BRANCH=${INPUT_BRANCH:-${BRANCH:-main}}
++
++# Fill the job template. The #SBATCH header is ignored by srun (the allocation is
++# already fixed), so those directives are left blank; the body is what runs.
++export PARTITION="" JOBNAME="" TIME="" RESOURCE_DIRECTIVES="" MAIL_DIRECTIVES=""
++export REPO_DIR
++RUN_SCRIPT="$REPO_DIR/run.sbatch"
++envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
++    < "$SCRIPTS_DIR/run.job.template" > "$RUN_SCRIPT"
++
+ echo ""
+-echo "### Starting training on job $JOBID..."
+-exec srun --jobid="$JOBID" --pty bash -c "
+-    source \"$HOME/hpc-scripts/.env.remote\" && \
+-    cd \"$REPO_DIR\" && \
+-    \${JOB_CMD:-uv run python main.py}
+-"
++echo "### Starting run on job $JOBID..."
++srun --jobid="$JOBID" --pty bash "$RUN_SCRIPT"
+diff --git a/src/ppo.py b/src/ppo.py
+index d31666d..e219dd3 100644
+--- a/src/ppo.py
++++ b/src/ppo.py
+@@ -126,6 +126,9 @@ if __name__ == "__main__":
+     args.num_iterations = args.total_timesteps // args.batch_size
+     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+     if args.track:
++        # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
++        # reporting only; unrelated to our logging)
++        os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
+         import wandb
+ 
+         wandb.init(
+@@ -134,9 +137,16 @@ if __name__ == "__main__":
+             sync_tensorboard=True,
+             config=vars(args),
+             name=run_name,
+-            monitor_gym=True,
++            # off: wandb's gym integration patches RecordVideo.close to read
++            # `self.enabled`, which gymnasium 1.x lacks, crashing on env close
++            monitor_gym=False,
+             save_code=True,
+         )
++        if args.capture_video:
++            # sync_tensorboard owns the wandb step, so give videos an explicit
++            # x-axis via a custom step metric (see utils.log_new_videos)
++            wandb.define_metric("media/video_step")
++            wandb.define_metric("media/video", step_metric="media/video_step")
+     writer = SummaryWriter(f"runs/{run_name}")
+     writer.add_text(
+         "hyperparameters",
+@@ -168,6 +178,11 @@ if __name__ == "__main__":
+     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
+     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
+ 
++    # For wandb video upload
++    video_dir = f"videos/{run_name}"
++    videos_seen: set[str] = set()
++    videos_sizes: dict[str, int] = {}
++
+     # TRY NOT TO MODIFY: start the game
+     global_step = 0
+     start_time = time.time()
+@@ -302,6 +317,9 @@ if __name__ == "__main__":
+         print("SPS:", int(global_step / (time.time() - start_time)))
+         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+ 
++        if args.track and args.capture_video:
++            utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
++
+     if args.save_model:
+         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+         torch.save(agent.state_dict(), model_path)
+@@ -329,4 +347,10 @@ if __name__ == "__main__":
+             push_to_hub(args, episodic_returns, repo_id, "PPO", f"runs/{run_name}", f"videos/{run_name}-eval")
+ 
+     envs.close()
++
++    if args.track and args.capture_video:
++        # final flush: two polls to catch the last video when its creation is done (needs a stable-size pass)
++        utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
++        utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
++
+     writer.close()
+diff --git a/src/utils.py b/src/utils.py
+index d91f195..90d3f8e 100644
+--- a/src/utils.py
++++ b/src/utils.py
+@@ -1,9 +1,43 @@
+ import os
++import glob
+ import torch
+ import random
+ import numpy as np
+ import gc
+ 
++def log_new_videos(video_dir, seen, sizes, step):
++    """Upload freshly-recorded RecordVideo files to W&B, tagged with `step`.
++
++    RecordVideo (on the idx==0 env) runs inside an AsyncVectorEnv subprocess, so we
++    cannot upload from its close callback — wandb.run only lives in the main process.
++    Instead we poll `video_dir` from the training loop. moviepy writes the .mp4
++    progressively, so a file is only uploaded once its byte size is stable across two
++    polls (guarding against half-written files); `sizes` carries the previous poll's
++    sizes and `seen` the filenames already uploaded.
++
++    `step` is logged as the `media/video_step` metric (the video's step_metric, defined
++    at wandb.init) rather than passed as wandb.log(step=...), which sync_tensorboard
++    ignores.
++    """
++    import wandb
++
++    if not os.path.isdir(video_dir):
++        return
++    for path in sorted(glob.glob(os.path.join(video_dir, "*.mp4"))):
++        if path in seen:
++            continue
++        try:
++            cur = os.path.getsize(path)
++        except OSError:
++            continue
++        if sizes.get(path) == cur and cur > 0:
++            wandb.log({"media/video": wandb.Video(path, format="mp4"), "media/video_step": step})
++            seen.add(path)
++            sizes.pop(path, None)
++        else:
++            sizes[path] = cur
++
++
+ def set_seed(seed: int, deterministic: bool = False):
+     """
+     Helper function for reproducible behavior to set the seed in `random`, `numpy` and `torch`.

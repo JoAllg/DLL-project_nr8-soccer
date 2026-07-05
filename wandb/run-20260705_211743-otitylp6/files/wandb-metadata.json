@@ -1,0 +1,32 @@
+{
+  "os": "Linux-7.1.2-3-cachyos-x86_64-with-glibc2.43",
+  "python": "CPython 3.10.0",
+  "startedAt": "2026-07-05T19:17:43.951156Z",
+  "args": [
+    "--capture-video",
+    "--track"
+  ],
+  "program": "/home/data/University/Semester/Deep Learning Lab/Exercises/project/src/ppo.py",
+  "codePath": "src/ppo.py",
+  "codePathLocal": "src/ppo.py",
+  "git": {
+    "remote": "git@github.com:JoAllg/DLL-project_nr8-soccer.git",
+    "commit": "600c7e60a91f8054fce25e284e0101a4ebbfa6e6"
+  },
+  "email": "wandb.jo@kosmosvogel.de",
+  "root": "/home/data/University/Semester/Deep Learning Lab/Exercises/project",
+  "host": "actualization",
+  "executable": "/home/data/University/Semester/Deep Learning Lab/Exercises/project/.venv/bin/python3",
+  "cpu_count": 8,
+  "cpu_count_logical": 16,
+  "disk": {
+    "/": {
+      "total": "536854134784",
+      "used": "506715766784"
+    }
+  },
+  "memory": {
+    "total": "32891756544"
+  },
+  "writerId": "n10m7tfbh15f7per0qmtevzey8mia8ua"
+}

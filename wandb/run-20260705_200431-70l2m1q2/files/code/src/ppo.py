@@ -1,4 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
+import glob
 import os
 import time
 
@@ -55,7 +56,7 @@ class Args:
     """the id of the environment"""
     total_timesteps: int = 8000000
     """total timesteps of the experiments"""
-    num_envs: int = 16
+    num_envs: int = 8
     """the number of parallel game environments"""
     num_steps: int = 2048
     """the number of steps to run in each environment per policy rollout"""
@@ -67,7 +68,7 @@ class Args:
     """the learning rate of the optimizer"""
     anneal_lr: bool = True
     """Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
-    warmup_ratio: float = 0.1
+    warmup_ratio: float = 0.02
     """fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
     min_lr_ratio: float = 1e-8
     """the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
@@ -75,7 +76,7 @@ class Args:
     """number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
     cycle_decay: float = 0.5
     """peak-LR multiplier applied at each LR restart (0.5 halves the max LR every cycle); 1.0 = no decay"""
-    weight_decay: float = 0.01
+    weight_decay: float = 0.0
     """AdamW weight decay (applied to matrix weights only, see optimizer setup)"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -87,7 +88,7 @@ class Args:
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
-    ent_coef: float = 0.01
+    ent_coef: float = 0.0
     """initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)"""
     # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
     # a decaying entropy bonus buys exploration early (finding ball/goal at all)
@@ -106,13 +107,13 @@ class Args:
     # Agent architecture arguments
     agent_type: Literal["mlp", "transformer"] = "mlp"
     """the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer"""
-    d_model: int = 256
+    d_model: int = 64
     """(transformer) the model/embedding dimension"""
-    n_layers: int = 4
+    n_layers: int = 2
     """(transformer) the number of encoder layers"""
-    n_heads: int = 8
-    """(transformer) the number of attention heads (must divide d_model)"""
-    ff_dim: int = 512
+    n_heads: int = 4
+    """(transformer) the number of attention heads"""
+    ff_dim: int = 256
     """(transformer) the feedforward dimension inside encoder layers"""
     dropout: float = 0.0
     """(transformer) dropout inside encoder layers"""
@@ -152,6 +153,39 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True):
     return thunk
 
 
+def log_new_videos(video_dir, seen, sizes, step):
+    """Upload freshly-recorded RecordVideo files to W&B, tagged with `step`.
+
+    RecordVideo (on the idx==0 env) runs inside an AsyncVectorEnv subprocess, so we
+    cannot upload from its close callback — wandb.run only lives in the main process.
+    Instead we poll `video_dir` from the training loop. moviepy writes the .mp4
+    progressively, so a file is only uploaded once its byte size is stable across two
+    polls (guarding against half-written files); `sizes` carries the previous poll's
+    sizes and `seen` the filenames already uploaded.
+
+    `step` is logged as the `media/video_step` metric (the video's step_metric, defined
+    at wandb.init) rather than passed as wandb.log(step=...), which sync_tensorboard
+    ignores.
+    """
+    import wandb
+
+    if not os.path.isdir(video_dir):
+        return
+    for path in sorted(glob.glob(os.path.join(video_dir, "*.mp4"))):
+        if path in seen:
+            continue
+        try:
+            cur = os.path.getsize(path)
+        except OSError:
+            continue
+        if sizes.get(path) == cur and cur > 0:
+            wandb.log({"media/video": wandb.Video(path), "media/video_step": step})
+            seen.add(path)
+            sizes.pop(path, None)
+        else:
+            sizes[path] = cur
+
+
 if __name__ == "__main__":
     args = tyro.cli(Args)
     args.batch_size = int(args.num_envs * args.num_steps)
@@ -159,9 +193,6 @@ if __name__ == "__main__":
     args.num_iterations = args.total_timesteps // args.batch_size
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
-        # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
-        # reporting only; unrelated to our logging)
-        os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
         import wandb
 
         wandb.init(
@@ -170,14 +201,20 @@ if __name__ == "__main__":
             sync_tensorboard=True,
             config=vars(args),
             name=run_name,
-            # off: wandb's gym integration patches RecordVideo.close to read
-            # `self.enabled`, which gymnasium 1.x lacks, crashing on env close
+            # monitor_gym is disabled: wandb 0.28.0's gym integration patches
+            # gymnasium.wrappers.RecordVideo.close with a fn that reads
+            # `self.enabled`, an attribute that doesn't exist on gymnasium 1.x's
+            # RecordVideo wrapper, so any env close (incl. AsyncVectorEnv's dummy
+            # probe env) raises AttributeError. Videos are still written to disk
+            # under videos/{run_name}.
             monitor_gym=False,
             save_code=True,
         )
         if args.capture_video:
-            # sync_tensorboard owns the wandb step, so give videos an explicit
-            # x-axis via a custom step metric (see utils.log_new_videos)
+            # sync_tensorboard=True makes wandb own the global step and ignore any
+            # step= passed to wandb.log. To still tie each uploaded video to an
+            # explicit training step, log that step as its own metric and make it the
+            # x-axis for the video media via step_metric.
             wandb.define_metric("media/video_step")
             wandb.define_metric("media/video", step_metric="media/video_step")
     writer = SummaryWriter(f"runs/{run_name}")
@@ -256,7 +293,7 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
 
-    # For wandb video upload
+    # capture-video upload bookkeeping (see log_new_videos)
     video_dir = f"videos/{run_name}"
     videos_seen: set[str] = set()
     videos_sizes: dict[str, int] = {}
@@ -399,7 +436,7 @@ if __name__ == "__main__":
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
         if args.track and args.capture_video:
-            utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
+            log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
@@ -430,8 +467,9 @@ if __name__ == "__main__":
     envs.close()
 
     if args.track and args.capture_video:
-        # final flush: two polls to catch the last video when its creation is done (needs a stable-size pass)
-        utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
-        utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
+        # final sweep: the last episode's video may still have been mid-write at the
+        # last in-loop poll — a second poll now sees it stable and uploads it
+        log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
+        log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
     writer.close()

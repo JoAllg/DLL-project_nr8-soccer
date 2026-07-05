@@ -1,0 +1,30 @@
+diff --git a/hpc-scripts/.env.remote.example b/hpc-scripts/.env.remote.example
+index ec83cc5..b2cbbe9 100644
+--- a/hpc-scripts/.env.remote.example
++++ b/hpc-scripts/.env.remote.example
+@@ -6,9 +6,12 @@
+ # Sourced from .bashrc — deployed by deploy.sh
+ 
+ # Project
++export JOB_CMD="uv run src/ppo.py --capture-video --agent_type transformer"
++
+ export WORKSPACE_NAME="data"
+-export WORKSPACE_DAYS=60
++export WORKSPACE_DAYS=60 # maximum amount
+ export WORKSPACE_EMAIL="<user>@tf.uni-freiburg.de"
++
+ WORKSPACE="$(ws_find "$WORKSPACE_NAME" 2>/dev/null)"
+ export WORKSPACE
+ 
+@@ -19,9 +22,8 @@ export BRANCH="main"
+ 
+ export SCRIPTS_DIR="$HOME/hpc-scripts"
+ 
+-export JOB_CMD="uv run python main.py"
+-
+-export UV_LINK_MODE=copy  # UV can not hardlink libraries if cache and environment are on different drives. Use copy instead
++# export UV_LINK_MODE=copy  # UV can not hardlink libraries if cache and environment are on different drives. Use copy instead
++export UV_CACHE_DIR="$WORKSPACE/.uv"
+ 
+ # Aliases
+ alias smi='nvidia-smi'

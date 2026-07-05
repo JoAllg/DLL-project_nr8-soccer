@@ -1,0 +1,121 @@
+_wandb:
+    value:
+        cli_version: 0.28.0
+        code_path: code/src/ppo.py
+        e:
+            4jezlxq0jfpooop1rgz7b8aed6i5n5li:
+                args:
+                    - --capture-video
+                    - --track
+                codePath: src/ppo.py
+                codePathLocal: src/ppo.py
+                cpu_count: 8
+                cpu_count_logical: 16
+                disk:
+                    /:
+                        total: "536854134784"
+                        used: "506607792128"
+                email: wandb.jo@kosmosvogel.de
+                executable: /home/data/University/Semester/Deep Learning Lab/Exercises/project/.venv/bin/python3
+                git:
+                    commit: 7c9566d7a7b4ce7d4be372f0ad49321bd8a0a444
+                    remote: git@github.com:JoAllg/DLL-project_nr8-soccer.git
+                host: actualization
+                memory:
+                    total: "32891756544"
+                os: Linux-7.1.2-3-cachyos-x86_64-with-glibc2.43
+                program: /home/data/University/Semester/Deep Learning Lab/Exercises/project/src/ppo.py
+                python: CPython 3.10.0
+                root: /home/data/University/Semester/Deep Learning Lab/Exercises/project
+                startedAt: "2026-07-05T18:38:38.294142Z"
+                writerId: 4jezlxq0jfpooop1rgz7b8aed6i5n5li
+        m:
+            - "1": media/video
+              "5": 2
+              "6":
+                - 1
+                - 3
+              "7": []
+            - "1": media/video_step
+              "6":
+                - 3
+              "7": []
+        python_version: 3.10.0
+        t:
+            "1":
+                - 1
+            "2":
+                - 1
+            "3":
+                - 7
+                - 13
+                - 16
+                - 35
+            "4": 3.10.0
+            "5": 0.28.0
+            "12": 0.28.0
+            "13": linux-x86_64
+anneal_lr:
+    value: true
+batch_size:
+    value: 32768
+capture_video:
+    value: true
+clip_coef:
+    value: 0.1
+clip_vloss:
+    value: true
+cuda:
+    value: true
+ent_coef:
+    value: 0.01
+env_id:
+    value: SSLSingleRobot-v0
+exp_name:
+    value: ppo
+gae_lambda:
+    value: 0.95
+gamma:
+    value: 0.99
+hf_entity:
+    value: ""
+learning_rate:
+    value: 0.0003
+max_grad_norm:
+    value: 0.5
+minibatch_size:
+    value: 1024
+norm_adv:
+    value: true
+num_envs:
+    value: 8
+num_iterations:
+    value: 244
+num_minibatches:
+    value: 32
+num_steps:
+    value: 4096
+rpo_alpha:
+    value: 0.5
+save_model:
+    value: false
+seed:
+    value: 1
+target_kl:
+    value: null
+torch_deterministic:
+    value: true
+total_timesteps:
+    value: 8000000
+track:
+    value: true
+update_epochs:
+    value: 10
+upload_model:
+    value: false
+vf_coef:
+    value: 0.5
+wandb_entity:
+    value: null
+wandb_project_name:
+    value: cleanRL

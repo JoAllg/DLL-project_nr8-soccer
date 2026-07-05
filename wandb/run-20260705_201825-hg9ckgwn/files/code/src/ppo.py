@@ -55,7 +55,7 @@ class Args:
     """the id of the environment"""
     total_timesteps: int = 8000000
     """total timesteps of the experiments"""
-    num_envs: int = 16
+    num_envs: int = 8
     """the number of parallel game environments"""
     num_steps: int = 2048
     """the number of steps to run in each environment per policy rollout"""
@@ -67,7 +67,7 @@ class Args:
     """the learning rate of the optimizer"""
     anneal_lr: bool = True
     """Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
-    warmup_ratio: float = 0.1
+    warmup_ratio: float = 0.02
     """fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
     min_lr_ratio: float = 1e-8
     """the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
@@ -75,7 +75,7 @@ class Args:
     """number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
     cycle_decay: float = 0.5
     """peak-LR multiplier applied at each LR restart (0.5 halves the max LR every cycle); 1.0 = no decay"""
-    weight_decay: float = 0.01
+    weight_decay: float = 0.0
     """AdamW weight decay (applied to matrix weights only, see optimizer setup)"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -87,7 +87,7 @@ class Args:
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
-    ent_coef: float = 0.01
+    ent_coef: float = 0.0
     """initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)"""
     # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
     # a decaying entropy bonus buys exploration early (finding ball/goal at all)
@@ -106,13 +106,13 @@ class Args:
     # Agent architecture arguments
     agent_type: Literal["mlp", "transformer"] = "mlp"
     """the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer"""
-    d_model: int = 256
+    d_model: int = 64
     """(transformer) the model/embedding dimension"""
-    n_layers: int = 4
+    n_layers: int = 2
     """(transformer) the number of encoder layers"""
-    n_heads: int = 8
-    """(transformer) the number of attention heads (must divide d_model)"""
-    ff_dim: int = 512
+    n_heads: int = 4
+    """(transformer) the number of attention heads"""
+    ff_dim: int = 256
     """(transformer) the feedforward dimension inside encoder layers"""
     dropout: float = 0.0
     """(transformer) dropout inside encoder layers"""
