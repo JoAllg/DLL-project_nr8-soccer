@@ -41,6 +41,7 @@ After deployment, the following SSH aliases are available:
 | `ssh hpc.srun` | Run a command on an already-allocated node. Same flow as `hpc.sbatch`.|
 | `ssh hpc.scancel` | Cancel a job |
 | `ssh hpc.scontrol` | Show details of a job |
+| `ssh hpc.logs` | Pick one of your recent jobs and view its log — pages with `less` if finished, follows live with `less +F` if still running |
 | `ssh hpc.login` | Open a shell on a running/allocated node |
 | `ssh hpc.tunnel` | Start a VS Code / Cursor remote tunnel on a running job (authenticates via GitHub, names the machine `codetunnel` or `cursortunnel`). Runs in tmux session. |
 

@@ -35,9 +35,9 @@ fi
 
 # Gather the run inputs (git pull, uv sync and the run itself happen on the node)
 echo ""
-read -p "Command [${JOB_CMD:-uv run src/ppo.py --capture-video --agent_type transformer --track
+read -p "Command [${JOB_CMD:-uv run src/ppo.py --capture-video --track 
 }]: " INPUT_CMD
-export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run src/ppo.py --capture-video --agent_type transformer --track
+export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run src/ppo.py --capture-video --track 
 }}
 
 read -p "Branch [${BRANCH:-main}]: " INPUT_BRANCH
@@ -46,9 +46,9 @@ export BRANCH=${INPUT_BRANCH:-${BRANCH:-main}}
 # Fill the job template. The #SBATCH header is ignored by srun (the allocation is
 # already fixed), so those directives are left blank; the body is what runs.
 export PARTITION="" JOBNAME="" TIME="" RESOURCE_DIRECTIVES="" MAIL_DIRECTIVES=""
-export REPO_DIR
+export REPO_DIR LOG_DIR
 RUN_SCRIPT="$REPO_DIR/run.sbatch"
-envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
+envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${LOG_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
     < "$SCRIPTS_DIR/run.job.template" > "$RUN_SCRIPT"
 
 echo ""

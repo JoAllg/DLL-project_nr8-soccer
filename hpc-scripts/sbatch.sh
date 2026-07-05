@@ -168,8 +168,8 @@ TIME=${INPUT_TIME:-$MAX_TIME}
 read -p "Job name [sbatch]: " INPUT_JOBNAME
 JOBNAME=${INPUT_JOBNAME:-sbatch}
 
-read -p "Command [${JOB_CMD:-uv run python main.py}]: " INPUT_CMD
-export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run python main.py}}
+read -p "Command [${JOB_CMD:-uv run src/ppo.py --capture-video --track }]: " INPUT_CMD
+export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run src/ppo.py --capture-video --track }}
 
 read -p "Branch [${BRANCH:-main}]: " INPUT_BRANCH
 export BRANCH=${INPUT_BRANCH:-${BRANCH:-main}}
@@ -192,9 +192,9 @@ fi
 export MAIL_DIRECTIVES
 
 # Fill the job template and submit it
-export PARTITION JOBNAME TIME REPO_DIR
+export PARTITION JOBNAME TIME REPO_DIR LOG_DIR
 RUN_SCRIPT="$REPO_DIR/run.sbatch"
-envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
+envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${LOG_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
     < "$SCRIPTS_DIR/run.job.template" > "$RUN_SCRIPT"
 
 echo ""

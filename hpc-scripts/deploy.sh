@@ -175,6 +175,7 @@ ssh "$HPC" "
         ws_register workspaces
     fi
     ln -sfn \$(ws_find \$WORKSPACE_NAME) \$HOME/\$WORKSPACE_NAME
+    mkdir -p \$LOG_DIR
 "
 
 ###############################################################################

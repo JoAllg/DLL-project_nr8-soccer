@@ -13,6 +13,7 @@
 #SBATCH --job-name=${JOBNAME}
 #SBATCH --time=${TIME}
 #SBATCH --chdir=${REPO_DIR}
+#SBATCH --output=${LOG_DIR}/slurm-%j.out
 ${RESOURCE_DIRECTIVES}
 ${MAIL_DIRECTIVES}
 
@@ -38,6 +39,9 @@ NODE="${SLURMD_NODENAME:-$(hostname -s)}"
 DATE="$(date +%Y-%m-%d)"
 RUN_BRANCH="runs/${DATE}+${NODE}"
 echo "### Archiving run to branch '$RUN_BRANCH' (command exit ${RUN_STATUS})..."
+# The live log lives in $LOG_DIR (persists across branch checkouts); copy it into the
+# repo too so this run's branch carries its own log alongside run.sbatch.
+cp "$LOG_DIR/slurm-${SLURM_JOB_ID}.out" "$REPO_DIR/" 2>/dev/null || true
 git checkout -B "$RUN_BRANCH"
 git add -A
 git commit -m "run on ${NODE} ${DATE} (exit ${RUN_STATUS}); see run.sbatch for the command" || true
