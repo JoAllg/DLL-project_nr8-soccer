@@ -10,7 +10,7 @@ if not os.environ.get("DISPLAY") and "MUJOCO_GL" not in os.environ:
         os.environ["MUJOCO_GL"] = "osmesa" # CPU software rendering
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 import gymnasium as gym
 import numpy as np
@@ -23,6 +23,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 
 import utils
 from agent import Agent
+from scheduler.CosineWarmupScheduler import get_cosine_schedule_with_warmup
 
 # import environments
 import rsoccer_gym  # noqa: F401
@@ -48,48 +49,75 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     save_model: bool = False
     """whether to save model into the `runs/{run_name}` folder"""
-    upload_model: bool = False
-    """whether to upload the saved model to huggingface"""
-    hf_entity: str = ""
-    """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
     env_id: str = "SSLSingleRobot-v0"
     """the id of the environment"""
     total_timesteps: int = 8000000
     """total timesteps of the experiments"""
-    learning_rate: float = 3e-4
-    """the learning rate of the optimizer"""
     num_envs: int = 8
     """the number of parallel game environments"""
     num_steps: int = 2048
     """the number of steps to run in each environment per policy rollout"""
+    num_minibatches: int = 32
+    """the number of mini-batches"""
+    update_epochs: int = 3
+    """the K epochs to update the policy"""
+    learning_rate: float = 3e-4
+    """the learning rate of the optimizer"""
     anneal_lr: bool = True
-    """Toggle learning rate annealing for policy and value networks"""
+    """Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
+    warmup_ratio: float = 0.02
+    """fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
+    min_lr_ratio: float = 1e-8
+    """the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
+    num_cycles: int = 1
+    """number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
+    cycle_decay: float = 0.5
+    """peak-LR multiplier applied at each LR restart (0.5 halves the max LR every cycle); 1.0 = no decay"""
+    weight_decay: float = 0.0
+    """AdamW weight decay (applied to matrix weights only, see optimizer setup)"""
     gamma: float = 0.99
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
-    num_minibatches: int = 32
-    """the number of mini-batches"""
-    update_epochs: int = 10
-    """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
-    clip_coef: float = 0.2
+    clip_coef: float = 0.1
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
     ent_coef: float = 0.0
-    """coefficient of the entropy"""
+    """initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)"""
+    # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
+    # a decaying entropy bonus buys exploration early (finding ball/goal at all)
+    # without keeping the policy noisy late in training
+    final_ent_coef: float = 0.0
+    """final entropy coefficient after linear annealing from ent_coef over total_timesteps"""
     vf_coef: float = 0.5
     """coefficient of the value function"""
-    max_grad_norm: float = 0.5
+    max_grad_norm: float = 0.25
     """the maximum norm for the gradient clipping"""
     target_kl: Optional[float] = None
     """the target KL divergence threshold"""
-    rpo_alpha: float = 0.5 # Best values between 0.5 to 0.1 
+    rpo_alpha: float = 0.5 # Best values between 0.5 to 0.1
     """the alpha parameter for RPO"""
+
+    # Agent architecture arguments
+    agent_type: Literal["mlp", "transformer"] = "mlp"
+    """the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer"""
+    d_model: int = 64
+    """(transformer) the model/embedding dimension"""
+    n_layers: int = 2
+    """(transformer) the number of encoder layers"""
+    n_heads: int = 4
+    """(transformer) the number of attention heads"""
+    ff_dim: int = 256
+    """(transformer) the feedforward dimension inside encoder layers"""
+    dropout: float = 0.0
+    """(transformer) dropout inside encoder layers"""
+    critic_pooling: Literal["mean", "max", "attention"] = "mean"
+    """(transformer) how the critic pools entity tokens into a scalar value"""
 
     # to be filled in runtime
     batch_size: int = 0
@@ -100,18 +128,23 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
 
-def make_env(env_id, idx, capture_video, run_name, gamma):
+def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
             env = gym.make(env_id)
-        env = gym.wrappers.FlattenObservation(env)  # deal with dm_control's Dict observation space
+        # flatten only for the MLP (and dm_control's Dict obs); the transformer
+        # agent skips it — flattening would destroy the per-entity structure it
+        # re-parses into tokens
+        if flatten:
+            env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
-        env = gym.wrappers.NormalizeObservation(env)
-        env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10), env.observation_space)
+        # no NormalizeObservation/clip here: rSoccer envs (VSS-v0) already normalize
+        # observations themselves, so a running-stats wrapper on top would rescale
+        # an already-bounded signal against a moving mean/variance for no benefit
         env = gym.wrappers.NormalizeReward(env, gamma=gamma)
         env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
         return env
@@ -151,14 +184,59 @@ if __name__ == "__main__":
     # env setup
 
     envs = gym.vector.AsyncVectorEnv(
-        [make_env(args.env_id, i, args.capture_video, run_name, args.gamma) for i in range(args.num_envs)]
+        [
+            make_env(
+                args.env_id, i, args.capture_video, run_name, args.gamma,
+                flatten=args.agent_type == "mlp",
+            )
+            for i in range(args.num_envs)
+        ]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     print("envs.single_action_space.shape:", envs.single_action_space.shape)
     print("envs.single_observation_space.shape:", envs.single_observation_space.shape)
 
-    agent = Agent(envs, args.rpo_alpha).to(device)
-    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)  # pyright: ignore[reportPrivateImportUsage]
+    agent = Agent(
+        envs,
+        args.rpo_alpha,
+        agent_type=args.agent_type,
+        env_id=args.env_id,
+        d_model=args.d_model,
+        n_layers=args.n_layers,
+        n_heads=args.n_heads,
+        ff_dim=args.ff_dim,
+        dropout=args.dropout,
+        critic_pooling=args.critic_pooling,
+    ).to(device)
+    # AdamW instead of Adam, after cleanrl ppo_trxl.py: decoupled weight
+    # decay is the standard transformer regularizer. Decay only matrix weights — biases,
+    # LayerNorms, actor_logstd and the PMA pool_query are excluded (decaying actor_logstd
+    # toward 0 would fight the learned exploration schedule).
+    no_decay = {"actor_logstd", "critic.pool_query"}
+    decay_params = [p for n, p in agent.named_parameters() if p.ndim >= 2 and n not in no_decay]
+    other_params = [p for n, p in agent.named_parameters() if p.ndim < 2 or n in no_decay]
+    optimizer = optim.AdamW(  # pyright: ignore[reportPrivateImportUsage]
+        [
+            {"params": decay_params, "weight_decay": args.weight_decay},
+            {"params": other_params, "weight_decay": 0.0},
+        ],
+        lr=args.learning_rate,
+        eps=1e-5,
+    )
+    # cosine-with-warmup instead of CleanRL's linear anneal: linear warmup
+    # protects the fresh transformer from large early Adam steps, then cosine
+    # decays onto an LR floor (see CosineWarmupScheduler.py)
+    scheduler = None
+    if args.anneal_lr:
+        total_optimizer_steps = args.num_iterations * args.update_epochs * args.num_minibatches
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=int(args.warmup_ratio * total_optimizer_steps),
+            num_training_steps=total_optimizer_steps,
+            num_cycles=args.num_cycles,
+            cycle_decay=args.cycle_decay,
+            min_lr_ratio=args.min_lr_ratio,
+        )
 
     # ALGO Logic: Storage setup
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
@@ -176,11 +254,11 @@ if __name__ == "__main__":
     next_done = torch.zeros(args.num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
-        # Annealing the rate if instructed to do so.
-        if args.anneal_lr:
-            frac = 1.0 - (iteration - 1.0) / args.num_iterations
-            lrnow = frac * args.learning_rate
-            optimizer.param_groups[0]["lr"] = lrnow
+        # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
+        # a decaying entropy bonus buys exploration early (finding ball/goal at all)
+        # without keeping the policy noisy late in training
+        frac = min(global_step / args.total_timesteps, 1.0)
+        ent_coef = args.ent_coef + (args.final_ent_coef - args.ent_coef) * frac
 
         for step in range(0, args.num_steps):
             global_step += args.num_envs
@@ -276,12 +354,14 @@ if __name__ == "__main__":
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+                loss = pg_loss - ent_coef * entropy_loss + v_loss * args.vf_coef
 
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
 
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
@@ -292,6 +372,7 @@ if __name__ == "__main__":
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+        writer.add_scalar("charts/entropy_coefficient", ent_coef, global_step)
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
@@ -306,27 +387,27 @@ if __name__ == "__main__":
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"model saved to {model_path}")
-        from cleanrl_utils.evals.ppo_eval import evaluate
 
-        episodic_returns = evaluate(
+        episodic_returns = utils.evaluate(
             model_path,
             make_env,
             args.env_id,
             eval_episodes=10,
             run_name=f"{run_name}-eval",
             Model=Agent,
+            agent_type=args.agent_type,
             device=device,
             gamma=args.gamma,
+            rpo_alpha=args.rpo_alpha,
+            d_model=args.d_model,
+            n_layers=args.n_layers,
+            n_heads=args.n_heads,
+            ff_dim=args.ff_dim,
+            dropout=args.dropout,
+            critic_pooling=args.critic_pooling,
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
-        if args.upload_model:
-            from cleanrl_utils.huggingface import push_to_hub
-
-            repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-            repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-            push_to_hub(args, episodic_returns, repo_id, "PPO", f"runs/{run_name}", f"videos/{run_name}-eval")
 
     envs.close()
     writer.close()

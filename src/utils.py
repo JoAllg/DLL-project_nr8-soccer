@@ -3,6 +3,7 @@ import torch
 import random
 import numpy as np
 import gc
+import gymnasium as gym
 
 def set_seed(seed: int, deterministic: bool = False):
     """
@@ -42,3 +43,58 @@ def get_device():
     print(f"Using device: {device}")
 
     return device, pin_memory#, num_cuda_devices, num_workers
+
+
+# Modified from cleanlr_utils/evals/ppo_eval.py
+def evaluate(
+    model_path,
+    make_env,
+    env_id,
+    eval_episodes,
+    run_name,
+    Model,
+    agent_type="mlp",
+    device=torch.device("cpu"),
+    capture_video=True,
+    gamma=0.99,
+    rpo_alpha=0.5,
+    d_model=64,
+    n_layers=2,
+    n_heads=4,
+    ff_dim=256,
+    dropout=0.0,
+    critic_pooling="mean",
+):
+    envs = gym.vector.SyncVectorEnv(
+        [make_env(env_id, 0, capture_video, run_name, gamma, flatten=agent_type == "mlp")]
+    )
+    agent = Model(
+        envs,
+        rpo_alpha,
+        agent_type=agent_type,
+        env_id=env_id,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        ff_dim=ff_dim,
+        dropout=dropout,
+        critic_pooling=critic_pooling,
+    ).to(device)
+    agent.load_state_dict(torch.load(model_path, map_location=device))
+    agent.eval()
+
+    obs, _ = envs.reset()
+    episodic_returns = []
+    while len(episodic_returns) < eval_episodes:
+        with torch.no_grad():
+            actions, _, _, _ = agent.get_action_and_value(torch.Tensor(obs).to(device))
+        next_obs, _, _, _, infos = envs.step(actions.cpu().numpy())
+        if "episode" in infos:
+            for i, r in enumerate(infos["episode"]["r"]):
+                if infos["_episode"][i]:
+                    print(f"eval_episode={len(episodic_returns)}, episodic_return={r:.2f}")
+                    episodic_returns.append(r)
+        obs = next_obs
+
+    envs.close()
+    return episodic_returns
