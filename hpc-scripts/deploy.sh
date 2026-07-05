@@ -91,7 +91,7 @@ retry() {
 
 ssh "$HPC" "mkdir -p ${REMOTE_SCRIPTS_DIR} ~/.ssh"
 
-retry rsync -avhz --delete --chmod=F755 --exclude='deploy.sh' --exclude='*.template' --include='*.sh' --include='.env.remote' --exclude='*' \
+retry rsync -avhz --delete --chmod=F755 --exclude='deploy.sh' --include='run.job.template' --exclude='*.template' --include='*.sh' --include='.env.remote' --exclude='*' \
     "$SCRIPT_DIR/" "$HPC:${REMOTE_SCRIPTS_DIR}/"
 
 retry rsync -av --chmod=F600 "$SCRIPT_DIR/deploy_ed25519" "$HPC:~/.ssh/deploy_ed25519"

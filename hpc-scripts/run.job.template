@@ -1,0 +1,44 @@
+#!/bin/bash
+# =========================
+# bwHPC deployment and Slurm scripts (2026)
+# Joshua Allgeier <allgeier@informatik.uni-freiburg.de>
+# =========================
+# Slurm job template. Placeholders (${NAME}) are filled interactively by
+# srun.sh / sbatch.sh via envsubst; the filled result is written to
+# $REPO_DIR/run.sbatch and committed to the run branch as the run's record.
+#
+# The #SBATCH header is honoured by sbatch and ignored by srun (which attaches
+# to an already-running allocation); either way the body below is what runs.
+#SBATCH --partition=${PARTITION}
+#SBATCH --job-name=${JOBNAME}
+#SBATCH --time=${TIME}
+#SBATCH --chdir=${REPO_DIR}
+${RESOURCE_DIRECTIVES}
+${MAIL_DIRECTIVES}
+
+source "$HOME/hpc-scripts/.env.remote"
+cd "$REPO_DIR" || exit 1
+
+# 1. Get the requested code (branch chosen interactively)
+echo "### Checking out branch '${BRANCH}'..."
+git checkout "${BRANCH}"
+git pull
+
+# 2. Sync the environment (nodes have internet)
+echo "### Syncing uv environment..."
+uv sync --all-extras
+
+# 3. Run the command (see this script / run.sbatch for the exact invocation)
+echo "### Running command..."
+${COMMAND}
+RUN_STATUS=$?
+
+# 4. Snapshot the run script and all outputs onto a per-run branch
+NODE="${SLURMD_NODENAME:-$(hostname -s)}"
+DATE="$(date +%Y-%m-%d)"
+RUN_BRANCH="runs/${DATE}+${NODE}"
+echo "### Archiving run to branch '$RUN_BRANCH' (command exit ${RUN_STATUS})..."
+git checkout -B "$RUN_BRANCH"
+git add -A
+git commit -m "run on ${NODE} ${DATE} (exit ${RUN_STATUS}); see run.sbatch for the command" || true
+git push -u origin "$RUN_BRANCH"

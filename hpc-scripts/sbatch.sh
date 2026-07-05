@@ -168,23 +168,42 @@ TIME=${INPUT_TIME:-$MAX_TIME}
 read -p "Job name [sbatch]: " INPUT_JOBNAME
 JOBNAME=${INPUT_JOBNAME:-sbatch}
 
-# Build mail flags for unavailable partitions
-MAIL_FLAGS=""
-if $IS_UNAVAILABLE; then
-    MAIL_FLAGS="--mail-type=BEGIN"
-    [ -n "$WORKSPACE_EMAIL" ] && MAIL_FLAGS="$MAIL_FLAGS --mail-user=$WORKSPACE_EMAIL"
+read -p "Command [${JOB_CMD:-uv run python main.py}]: " INPUT_CMD
+export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run python main.py}}
+
+read -p "Branch [${BRANCH:-main}]: " INPUT_BRANCH
+export BRANCH=${INPUT_BRANCH:-${BRANCH:-main}}
+
+# Build the #SBATCH resource directives for the template
+if [ "$IS_CPU" = "true" ]; then
+    RESOURCE_DIRECTIVES="#SBATCH --ntasks=$CPUS"
+    [ -n "$MEM_FLAG" ] && RESOURCE_DIRECTIVES="$RESOURCE_DIRECTIVES"$'\n'"#SBATCH $MEM_FLAG"
+else
+    RESOURCE_DIRECTIVES="#SBATCH --gres=gpu:$GPUS"
 fi
+export RESOURCE_DIRECTIVES
+
+# Build mail directives for unavailable partitions
+MAIL_DIRECTIVES=""
+if $IS_UNAVAILABLE; then
+    MAIL_DIRECTIVES="#SBATCH --mail-type=BEGIN"
+    [ -n "$WORKSPACE_EMAIL" ] && MAIL_DIRECTIVES="$MAIL_DIRECTIVES"$'\n'"#SBATCH --mail-user=$WORKSPACE_EMAIL"
+fi
+export MAIL_DIRECTIVES
+
+# Fill the job template and submit it
+export PARTITION JOBNAME TIME REPO_DIR
+RUN_SCRIPT="$REPO_DIR/run.sbatch"
+envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
+    < "$SCRIPTS_DIR/run.job.template" > "$RUN_SCRIPT"
 
 echo ""
 if [ "$IS_CPU" = "true" ]; then
     echo "### Submitting: $PARTITION, ${CPUS} CPU(s), $TIME, job=$JOBNAME"
-    sbatch -p "$PARTITION" --ntasks="$CPUS" $MEM_FLAG --time="$TIME" --job-name="$JOBNAME" $MAIL_FLAGS \
-        --wrap="source \"$HOME/hpc-scripts/.env.remote\" && cd \"$REPO_DIR\" && ${JOB_CMD:-uv run python main.py}"
 else
     echo "### Submitting: $PARTITION, ${GPUS} GPU(s), $TIME, job=$JOBNAME"
-    sbatch -p "$PARTITION" --gres=gpu:"$GPUS" --time="$TIME" --job-name="$JOBNAME" $MAIL_FLAGS \
-        --wrap="source \"$HOME/hpc-scripts/.env.remote\" && cd \"$REPO_DIR\" && ${JOB_CMD:-uv run python main.py}"
 fi
+sbatch "$RUN_SCRIPT"
 
 if $IS_UNAVAILABLE; then
     echo "### Note: Partition busy — you will be emailed at $WORKSPACE_EMAIL when the job starts."

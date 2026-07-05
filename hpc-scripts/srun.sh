@@ -7,15 +7,7 @@ source "$HOME/hpc-scripts/.env.remote" 2>/dev/null
 
 cd "$REPO_DIR" || { echo "Repository not found at $REPO_DIR"; exec bash -i; }
 
-# Update code and environment on login node (has internet access)
-echo "### Updating repository..."
-git pull
-
-echo "### Syncing uv environment..."
-uv sync --all-extras
-
 # Show running jobs
-echo ""
 echo "### Your running jobs:"
 JOBS=($(squeue -u "$USER" -t RUNNING -h -o "%i"))
 if [ ${#JOBS[@]} -eq 0 ]; then
@@ -41,10 +33,24 @@ else
     JOBID=${JOBS[$((SEL-1))]}
 fi
 
+# Gather the run inputs (git pull, uv sync and the run itself happen on the node)
 echo ""
-echo "### Starting training on job $JOBID..."
-exec srun --jobid="$JOBID" --pty bash -c "
-    source \"$HOME/hpc-scripts/.env.remote\" && \
-    cd \"$REPO_DIR\" && \
-    \${JOB_CMD:-uv run python main.py}
-"
+read -p "Command [${JOB_CMD:-uv run src/ppo.py --capture-video --agent_type transformer --track
+}]: " INPUT_CMD
+export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run src/ppo.py --capture-video --agent_type transformer --track
+}}
+
+read -p "Branch [${BRANCH:-main}]: " INPUT_BRANCH
+export BRANCH=${INPUT_BRANCH:-${BRANCH:-main}}
+
+# Fill the job template. The #SBATCH header is ignored by srun (the allocation is
+# already fixed), so those directives are left blank; the body is what runs.
+export PARTITION="" JOBNAME="" TIME="" RESOURCE_DIRECTIVES="" MAIL_DIRECTIVES=""
+export REPO_DIR
+RUN_SCRIPT="$REPO_DIR/run.sbatch"
+envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
+    < "$SCRIPTS_DIR/run.job.template" > "$RUN_SCRIPT"
+
+echo ""
+echo "### Starting run on job $JOBID..."
+srun --jobid="$JOBID" --pty bash "$RUN_SCRIPT"
