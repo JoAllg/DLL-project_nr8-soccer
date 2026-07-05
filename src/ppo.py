@@ -53,7 +53,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "SSLSingleRobot-v0"
     """the id of the environment"""
-    total_timesteps: int = 8000000
+    total_timesteps: int = 800000000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
