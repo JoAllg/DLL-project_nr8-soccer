@@ -7,6 +7,12 @@ source "$HOME/hpc-scripts/.env.remote" 2>/dev/null
 
 cd "$REPO_DIR" || { echo "Repository not found at $REPO_DIR"; exec bash -i; }
 
+# Make sure $REPO_DIR/.venv exists and is populated — the job's own worktree
+# symlinks to it instead of building its own (see run.job.template), so this is
+# what guarantees a real target is there the first time hpc.srun is ever used.
+echo "### Syncing uv environment..."
+uv sync --all-extras
+
 # Show running jobs
 echo "### Your running jobs:"
 JOBS=($(squeue -u "$USER" -t RUNNING -h -o "%i"))
@@ -33,7 +39,7 @@ else
     JOBID=${JOBS[$((SEL-1))]}
 fi
 
-# Gather the run inputs (git pull, uv sync and the run itself happen on the node)
+# Gather the run inputs (the branch checkout and the run itself happen on the node)
 echo ""
 read -p "Command [${JOB_CMD:-uv run src/ppo.py --capture-video --track 
 }]: " INPUT_CMD

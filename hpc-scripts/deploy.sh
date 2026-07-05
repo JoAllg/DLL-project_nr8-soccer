@@ -189,8 +189,7 @@ ssh "$HPC" "
     export PATH=\"\$HOME/.local/bin:\$PATH\"
     WS=\$(ws_find \$WORKSPACE_NAME)
     if [ -d \"\$WS/\$REPO_NAME\" ]; then
-        echo '  Repository exists, pulling latest...'
-        cd \"\$WS/\$REPO_NAME\" && git checkout \${BRANCH:-main} && git pull
+        echo '  Repository exists...'
     else
         echo '  Cloning repository...'
         git clone --template= --branch \${BRANCH:-main} \$REPO_URL \"\$WS/\$REPO_NAME\"
