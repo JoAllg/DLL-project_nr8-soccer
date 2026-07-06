@@ -68,7 +68,7 @@ class Args:
     """the learning rate of the optimizer"""
     anneal_lr: bool = True
     """Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
-    warmup_ratio: float = 0.1
+    warmup_ratio: float = 0.01
     """fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
     min_lr_ratio: float = 1e-8
     """the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
