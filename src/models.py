@@ -57,7 +57,6 @@ class TokenLayout:
     robots the policy commands; the remaining teammates are observed only.
     All weight shapes derived from a layout are independent of the entity
     counts, so checkpoints transfer across team sizes.
-    # TODO: layout teammates, ball, oponnents might help the model better to understand what is the team and what are the oponnents?
     """
 
     ball_dim: int

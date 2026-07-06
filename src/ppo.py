@@ -1,6 +1,7 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 import os
 import time
+from datetime import datetime
 
 # Auto-select headless rendering backend if no display is available
 if not os.environ.get("DISPLAY") and "MUJOCO_GL" not in os.environ:
@@ -157,7 +158,7 @@ if __name__ == "__main__":
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     if args.track:
         # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
         # reporting only; unrelated to our logging)
@@ -188,11 +189,13 @@ if __name__ == "__main__":
 
     # TRY NOT TO MODIFY: seeding
     utils.set_seed(args.seed, args.torch_deterministic)
-    
-    device, _ = utils.get_device()
 
     # env setup
-
+    # AsyncVectorEnv forks worker subprocesses (default multiprocessing start
+    # method on Linux). Construct it before utils.get_device() touches CUDA -
+    # forking a process with an already-initialized CUDA context is unsafe and
+    # can deadlock a worker later (e.g. on its first subprocess spawn for video
+    # encoding), rather than failing immediately.
     envs = gym.vector.AsyncVectorEnv(
         [
             make_env(
@@ -205,6 +208,8 @@ if __name__ == "__main__":
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     print("envs.single_action_space.shape:", envs.single_action_space.shape)
     print("envs.single_observation_space.shape:", envs.single_observation_space.shape)
+
+    device, _ = utils.get_device()
 
     agent = Agent(
         envs,

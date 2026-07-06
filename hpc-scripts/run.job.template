@@ -45,6 +45,12 @@ echo "### Syncing uv environment..."
 uv sync --all-extras
 
 # 3. Run the command (see this script / run.sbatch for the exact invocation)
+# Headless Slurm nodes have no display; default SDL to the dummy driver so
+# pygame's unconditional pygame.init() (rSoccer's render(), even for
+# rgb_array/--capture-video) can't block probing a real video backend. A
+# no-op if SDL_VIDEODRIVER is already set (e.g. an interactive/X session).
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}"
+export SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-dummy}"
 echo "### Running command..."
 ${COMMAND}
 RUN_STATUS=$?
