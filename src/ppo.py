@@ -209,7 +209,7 @@ if __name__ == "__main__":
     print("envs.single_action_space.shape:", envs.single_action_space.shape)
     print("envs.single_observation_space.shape:", envs.single_observation_space.shape)
 
-    device, _ = utils.get_device(cuda)
+    device, _ = utils.get_device(args.cuda)
 
     agent = Agent(
         envs,
