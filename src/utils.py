@@ -51,7 +51,7 @@ def set_seed(seed: int, deterministic: bool = False):
     torch.manual_seed(seed)
     if deterministic:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-    torch.use_deterministic_algorithms(deterministic)
+        torch.use_deterministic_algorithms(deterministic)
 
 def get_device():
     if torch.cuda.is_available():
