@@ -40,7 +40,7 @@ Host hpc.scontrol
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/scontrol.sh
 
 # Show the log of a recent job (less if finished, less +F if still running)
-Host hpc.logs
+Host hpc.logs hpc.log
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/logs.sh
 

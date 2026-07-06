@@ -17,6 +17,11 @@
 ${RESOURCE_DIRECTIVES}
 ${MAIL_DIRECTIVES}
 
+# Log what this job actually got (vars per wiki.bwhpc.de Slurm docs). Not
+# nproc: it honours OMP_NUM_THREADS (=1 via the cluster profile) and then
+# under-reports; Slurm's variables and the kernel affinity mask are the truth.
+echo "### Allocated resources: ${SLURM_JOB_CPUS_PER_NODE:-?} CPUs/node (affinity: $(awk '/Cpus_allowed_list/{print $2}' /proc/self/status), node total: $(nproc --all)), GPUs: ${SLURM_JOB_GPUS:-${CUDA_VISIBLE_DEVICES:-none}}, mem/node: ${SLURM_MEM_PER_NODE:-?}MB, partition: ${SLURM_JOB_PARTITION:-?}, node: ${SLURMD_NODENAME:-$(hostname -s)}"
+
 source "$HOME/hpc-scripts/.env.remote"
 cd "$REPO_DIR" || exit 1
 
@@ -51,6 +56,10 @@ uv sync --all-extras
 # no-op if SDL_VIDEODRIVER is already set (e.g. an interactive/X session).
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}"
 export SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-dummy}"
+# stdout goes to the Slurm log file (not a TTY), so Python block-buffers                                                            
+# prints ~8KB at a time and the log lags many minutes behind reality;                                                               
+# stderr already streams. Make the log live.                      
+export PYTHONUNBUFFERED=1                                         
 echo "### Running command..."
 ${COMMAND}
 RUN_STATUS=$?
