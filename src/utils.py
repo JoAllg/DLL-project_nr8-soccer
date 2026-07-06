@@ -53,8 +53,8 @@ def set_seed(seed: int, deterministic: bool = False):
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.use_deterministic_algorithms(deterministic)
 
-def get_device():
-    if torch.cuda.is_available():
+def get_device(cuda: bool):
+    if torch.cuda.is_available() and cuda:
         device = torch.device("cuda")
         gc.collect()
         torch.cuda.empty_cache()
@@ -63,7 +63,7 @@ def get_device():
         # num_cuda_devices = 1 # number of gpus to use
         # torch.cuda.set_device(0)  # Set specific GPU device to use
         # torch.set_float32_matmul_precision('high') # Mixed precicion setting to use TensorFloat32 (TF32) mode.
-    elif torch.backends.mps.is_available():
+    elif torch.backends.mps.is_available() and cuda:
         device = torch.device("mps")
         gc.collect()
         torch.mps.empty_cache()
