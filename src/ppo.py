@@ -17,6 +17,7 @@ import gymnasium as gym
 import numpy as np
 import shimmy  # noqa: F401
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
 import tyro
@@ -155,37 +156,58 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
+    # Distributed (single-node torchrun) setup. Read env vars only — CUDA must not
+    # be touched before AsyncVectorEnv forks its workers (see env setup below), so
+    # the CUDA check and process-group init happen at device selection instead.
+    # LOCAL_RANK doubles as the global rank (single-node --standalone assumption).
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_distributed = world_size > 1
+    is_main = local_rank == 0
+
+    # --num-envs is global and split across ranks; the global batch size (and with
+    # it every derived hyperparameter) is independent of world_size. Each rank runs
+    # the same num_minibatches count per epoch, so optimizer/scheduler step counts
+    # match the single-process run exactly.
+    assert args.num_envs % world_size == 0, "num_envs must be divisible by world_size"
+    local_num_envs = args.num_envs // world_size
+    local_batch_size = local_num_envs * args.num_steps
+    assert local_batch_size % args.num_minibatches == 0, "local batch size must be divisible by num_minibatches"
+    local_minibatch_size = local_batch_size // args.num_minibatches
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    if args.track:
-        # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
-        # reporting only; unrelated to our logging)
-        os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
-        import wandb
+    # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
+    writer = None
+    if is_main:
+        if args.track:
+            # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
+            # reporting only; unrelated to our logging)
+            os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
+            import wandb
 
-        wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            sync_tensorboard=True,
-            config=vars(args),
-            name=run_name,
-            # off: wandb's gym integration patches RecordVideo.close to read
-            # `self.enabled`, which gymnasium 1.x lacks, crashing on env close
-            monitor_gym=False,
-            save_code=True,
+            wandb.init(
+                project=args.wandb_project_name,
+                entity=args.wandb_entity,
+                sync_tensorboard=True,
+                config=vars(args),
+                name=run_name,
+                # off: wandb's gym integration patches RecordVideo.close to read
+                # `self.enabled`, which gymnasium 1.x lacks, crashing on env close
+                monitor_gym=False,
+                save_code=True,
+            )
+            if args.capture_video:
+                # sync_tensorboard owns the wandb step, so give videos an explicit
+                # x-axis via a custom step metric (see utils.log_new_videos)
+                wandb.define_metric("media/video_step")
+                wandb.define_metric("media/video", step_metric="media/video_step")
+        writer = SummaryWriter(f"runs/{run_name}")
+        writer.add_text(
+            "hyperparameters",
+            "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
         )
-        if args.capture_video:
-            # sync_tensorboard owns the wandb step, so give videos an explicit
-            # x-axis via a custom step metric (see utils.log_new_videos)
-            wandb.define_metric("media/video_step")
-            wandb.define_metric("media/video", step_metric="media/video_step")
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
 
     # TRY NOT TO MODIFY: seeding
     utils.set_seed(args.seed, args.torch_deterministic)
@@ -196,20 +218,32 @@ if __name__ == "__main__":
     # forking a process with an already-initialized CUDA context is unsafe and
     # can deadlock a worker later (e.g. on its first subprocess spawn for video
     # encoding), rather than failing immediately.
+    # each rank runs its own local slice of the envs; every rank has an idx==0 env,
+    # so video capture must additionally be gated to rank 0
     envs = gym.vector.AsyncVectorEnv(
         [
             make_env(
-                args.env_id, i, args.capture_video, run_name, args.gamma,
+                args.env_id, i, args.capture_video and is_main, run_name, args.gamma,
                 flatten=args.agent_type == "mlp",
             )
-            for i in range(args.num_envs)
+            for i in range(local_num_envs)
         ]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-    print("envs.single_action_space.shape:", envs.single_action_space.shape)
-    print("envs.single_observation_space.shape:", envs.single_observation_space.shape)
+    if is_main:
+        print("envs.single_action_space.shape:", envs.single_action_space.shape)
+        print("envs.single_observation_space.shape:", envs.single_observation_space.shape)
 
-    device, _ = utils.get_device(args.cuda)
+    if is_distributed:
+        # Manual-all_reduce DDP (see deps/ddp_transformer.md) is NCCL/CUDA-only by
+        # design: fail fast rather than silently training unsynced ranks on CPU.
+        if not torch.cuda.is_available():
+            raise RuntimeError("Distributed launch (WORLD_SIZE>1) requires CUDA; run without torchrun instead.")
+        torch.cuda.set_device(local_rank)  # bind before init so NCCL maps ranks to their GPUs
+        dist.init_process_group("nccl")
+        device = torch.device(f"cuda:{local_rank}")
+    else:
+        device, _ = utils.get_device(args.cuda)
 
     agent = Agent(
         envs,
@@ -253,13 +287,19 @@ if __name__ == "__main__":
             min_lr_ratio=args.min_lr_ratio,
         )
 
+    if is_distributed:
+        # de-correlate per-rank sampling (action noise, RPO perturbation, minibatch
+        # shuffles) now that the identically-seeded model init above is done
+        torch.manual_seed(args.seed + local_rank)
+        np.random.seed(args.seed + local_rank)
+
     # ALGO Logic: Storage setup
-    obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
-    actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(device)
-    logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    values = torch.zeros((args.num_steps, args.num_envs)).to(device)
+    obs = torch.zeros((args.num_steps, local_num_envs) + envs.single_observation_space.shape).to(device)
+    actions = torch.zeros((args.num_steps, local_num_envs) + envs.single_action_space.shape).to(device)
+    logprobs = torch.zeros((args.num_steps, local_num_envs)).to(device)
+    rewards = torch.zeros((args.num_steps, local_num_envs)).to(device)
+    dones = torch.zeros((args.num_steps, local_num_envs)).to(device)
+    values = torch.zeros((args.num_steps, local_num_envs)).to(device)
 
     # For wandb video upload
     video_dir = f"videos/{run_name}"
@@ -269,9 +309,12 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
-    next_obs, _ = envs.reset(seed=args.seed)
+    # offset the env seed per rank so ranks collect disjoint rollouts (the vector
+    # env seeds sub-env i with env_seed + i, so ranks get disjoint ranges)
+    env_seed = args.seed + local_rank * local_num_envs
+    next_obs, _ = envs.reset(seed=env_seed)
     next_obs = torch.Tensor(next_obs).to(device)
-    next_done = torch.zeros(args.num_envs).to(device)
+    next_done = torch.zeros(local_num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
         # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
@@ -298,8 +341,8 @@ if __name__ == "__main__":
             rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
 
-            #fixed logging
-            if "episode" in infos:
+            #fixed logging (rank 0 only; its envs are an accepted approximation of the fleet)
+            if writer is not None and "episode" in infos:
                 for i, r in enumerate(infos["episode"]["r"]):
                     if infos["_episode"][i]:
                         print(f"global_step={global_step}, episodic_return={r:.2f}")
@@ -331,12 +374,12 @@ if __name__ == "__main__":
         b_values = values.reshape(-1)
 
         # Optimizing the policy and value network
-        b_inds = np.arange(args.batch_size)
+        b_inds = np.arange(local_batch_size)
         clipfracs = []
         for epoch in range(args.update_epochs):
             np.random.shuffle(b_inds)
-            for start in range(0, args.batch_size, args.minibatch_size):
-                end = start + args.minibatch_size
+            for start in range(0, local_batch_size, local_minibatch_size):
+                end = start + local_minibatch_size
                 mb_inds = b_inds[start:end]
 
                 _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions[mb_inds])
@@ -378,35 +421,49 @@ if __name__ == "__main__":
 
                 optimizer.zero_grad()
                 loss.backward()
+                if is_distributed:
+                    # average grads across ranks before clip/step so every rank takes
+                    # the same optimizer step and weights stay identical (covers actor,
+                    # critic and actor_logstd — all under agent.parameters())
+                    for param in agent.parameters():
+                        if param.grad is not None:
+                            dist.all_reduce(param.grad.data, op=dist.ReduceOp.AVG)
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
                 if scheduler is not None:
                     scheduler.step()
 
-            if args.target_kl is not None and approx_kl > args.target_kl:
-                break
+            if args.target_kl is not None:
+                # approx_kl is rank-local; the break must be unanimous or the ranks
+                # still training would deadlock in all_reduce
+                kl_stop = torch.tensor(float(approx_kl > args.target_kl), device=device)
+                if is_distributed:
+                    dist.all_reduce(kl_stop, op=dist.ReduceOp.MAX)
+                if kl_stop.item():
+                    break
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
-        writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
-        writer.add_scalar("charts/entropy_coefficient", ent_coef, global_step)
-        writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
-        writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-        writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
-        writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
-        writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
-        writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
-        writer.add_scalar("losses/explained_variance", explained_var, global_step)
-        print("SPS:", int(global_step / (time.time() - start_time)))
-        writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+        if writer is not None:
+            writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+            writer.add_scalar("charts/entropy_coefficient", ent_coef, global_step)
+            writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
+            writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
+            writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
+            writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
+            writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
+            writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
+            writer.add_scalar("losses/explained_variance", explained_var, global_step)
+            print("SPS:", int(global_step / (time.time() - start_time)))
+            writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
-        if args.track and args.capture_video:
+        if is_main and args.track and args.capture_video:
             utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
-    if args.save_model:
+    if args.save_model and writer is not None:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"model saved to {model_path}")
@@ -434,9 +491,14 @@ if __name__ == "__main__":
 
     envs.close()
 
-    if args.track and args.capture_video:
+    if is_main and args.track and args.capture_video:
         # final flush: two polls to catch the last video when its creation is done (needs a stable-size pass)
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
-    writer.close()
+    if writer is not None:
+        writer.close()
+
+    if is_distributed:
+        dist.barrier()  # let rank 0 finish saving/evaluating before tearing down
+        dist.destroy_process_group()

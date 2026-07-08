@@ -14,7 +14,7 @@ Host hpc.salloc
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/salloc.sh
 
-# Run JOB_CMD on an running node
+# Run a job on an running node
 Host hpc.srun
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/srun.sh
@@ -29,7 +29,7 @@ Host hpc.scancel
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/scancel.sh
 
-# Submit a batch job running JOB_CMD
+# Submit a batch job
 Host hpc.sbatch
   RequestTTY yes
   RemoteCommand {{REMOTE_SCRIPTS_DIR}}/sbatch.sh

@@ -168,8 +168,15 @@ TIME=${INPUT_TIME:-$MAX_TIME}
 read -p "Job name [sbatch]: " INPUT_JOBNAME
 JOBNAME=${INPUT_JOBNAME:-sbatch}
 
-read -p "Command [${JOB_CMD:-uv run src/ppo.py --capture-video --track }]: " INPUT_CMD
-export COMMAND=${INPUT_CMD:-${JOB_CMD:-uv run src/ppo.py --capture-video --track }}
+# The launcher (uv run python vs torchrun) is picked at runtime in run.job.template
+# from SLURM_GPUS_ON_NODE. JOB_FILE/JOB_ARGS come from .env.remote; JOB_ARGS always
+# applies, the prompted extra arguments are appended after it (last-one-wins,
+# so extras override base args; booleans via their --no-* form).
+export JOB_FILE=${JOB_FILE:-src/ppo.py}
+export JOB_ARGS=${JOB_ARGS:-}
+echo "Run: <uv run python | torchrun if >1 GPU> $JOB_FILE $JOB_ARGS"
+read -p "Extra arguments []: " EXTRA_ARGS
+export EXTRA_ARGS
 
 read -p "Branch [${BRANCH:-main}]: " INPUT_BRANCH
 export BRANCH=${INPUT_BRANCH:-${BRANCH:-main}}
@@ -194,7 +201,7 @@ export MAIL_DIRECTIVES
 # Fill the job template and submit it
 export PARTITION JOBNAME TIME REPO_DIR LOG_DIR
 RUN_SCRIPT="$REPO_DIR/run.sbatch"
-envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${LOG_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${COMMAND}' \
+envsubst '${PARTITION} ${JOBNAME} ${TIME} ${REPO_DIR} ${LOG_DIR} ${RESOURCE_DIRECTIVES} ${MAIL_DIRECTIVES} ${BRANCH} ${JOB_FILE} ${JOB_ARGS} ${EXTRA_ARGS}' \
     < "$SCRIPTS_DIR/run.job.template" > "$RUN_SCRIPT"
 
 echo ""

@@ -60,8 +60,16 @@ export SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-dummy}"
 # prints ~8KB at a time and the log lags many minutes behind reality;                                                               
 # stderr already streams. Make the log live.                      
 export PYTHONUNBUFFERED=1                                         
-echo "### Running command..."
-${COMMAND}
+# Pick the launcher from the allocation: torchrun (single-node DDP, one process per
+# GPU) when the job has more than one GPU, plain python otherwise.
+NUM_GPUS="$SLURM_GPUS_ON_NODE"
+if [ "${NUM_GPUS:-0}" -gt 1 ] 2>/dev/null; then
+    LAUNCHER="uv run torchrun --standalone --nnodes=1 --nproc_per_node=$NUM_GPUS"
+else
+    LAUNCHER="uv run python"
+fi
+echo "### Running: $LAUNCHER ${JOB_FILE} ${JOB_ARGS} ${EXTRA_ARGS}"
+$LAUNCHER ${JOB_FILE} ${JOB_ARGS} ${EXTRA_ARGS}
 RUN_STATUS=$?
 
 # 4. Snapshot the run script and all outputs onto a per-run branch
