@@ -1,6 +1,7 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 import os
 import time
+import warnings
 from datetime import datetime
 
 # Auto-select headless rendering backend if no display is available
@@ -12,6 +13,25 @@ if not os.environ.get("DISPLAY") and "MUJOCO_GL" not in os.environ:
 
 from dataclasses import dataclass
 from typing import Literal, Optional
+
+# shimmy pulls in pygame, whose pkgdata.py emits a pkg_resources deprecation warning
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated as an API",
+    category=UserWarning,
+    module="pygame.pkgdata",
+)
+# AsyncVectorEnv builds a throwaway env_fns[0]() in the main process to introspect
+# obs/action spaces before forking the real per-env worker subprocess, so RecordVideo
+# ends up constructed twice for the same video_folder, and gymnasium warns about it.
+# gymnasium.logger.warn() prepends an ANSI color code + "WARN: " before the message,
+# hence the leading ".*" (filterwarnings anchors "message" at the start of the string).
+warnings.filterwarnings(
+    "ignore",
+    message=".*Overwriting existing videos.*",
+    category=UserWarning,
+    module="gymnasium.wrappers.rendering",
+)
 
 import gymnasium as gym
 import numpy as np
@@ -55,7 +75,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "SSLSingleRobot-v0"
     """the id of the environment"""
-    total_timesteps: int = 800000000
+    total_timesteps: int = 8000000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -106,7 +126,7 @@ class Args:
     """the alpha parameter for RPO"""
 
     # Agent architecture arguments
-    agent_type: Literal["mlp", "transformer"] = "mlp"
+    agent_type: Literal["mlp", "transformer"] = "transformer"
     """the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer"""
     d_model: int = 256
     """(transformer) the model/embedding dimension"""
@@ -118,7 +138,7 @@ class Args:
     """(transformer) the feedforward dimension inside encoder layers"""
     dropout: float = 0.0
     """(transformer) dropout inside encoder layers"""
-    critic_pooling: Literal["mean", "max", "attention"] = "mean"
+    critic_pooling: Literal["mean", "max", "attention"] = "attention"
     """(transformer) how the critic pools entity tokens into a scalar value"""
 
     # to be filled in runtime
