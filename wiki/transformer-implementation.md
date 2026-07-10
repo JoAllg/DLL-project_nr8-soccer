@@ -65,9 +65,10 @@ flat obs (B, obs_dim)
 (`models.py:52`: `ball_dim, n_teammates, teammate_dim, n_opponents, opponent_dim`), which
 encodes the per-entity feature widths: `ball [x,y,vx,vy]`,
 `teammate [x,y,sinθ,cosθ,vx,vy,vθ]`, `opponent [x,y,vx,vy,vθ]`.
-- Each token gets `[team_size, opp_size]` **appended** as extra features. This is how the
-network learns about team size at all — there's no other signal for it, since there's no
-padd*i*ng/masking (see below).
+- Each token gets `[team_size / N_MAX, opp_size / N_MAX]` **appended** as extra features
+(`N_MAX = 11`, `agent.py`). This is how the network learns about team size at all — there's
+no other signal for it, since there's no padd*i*ng/masking (see below). Normalizing by
+`N_MAX` keeps the counts in `(0, 1]` for every team size (why: `team-size-generalization.md`).
 - Observations are divided by `obs_scale` (the env's declared `Box` high, `agent.py:57`)
 instead of using `NormalizeObservation` — a running-mean normalizer would be
 permutation-*unsafe* per-entity and is redundant since our envs already return bounded
