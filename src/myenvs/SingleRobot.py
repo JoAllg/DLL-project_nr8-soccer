@@ -2,6 +2,8 @@ import numpy as np
 from gymnasium.spaces import Box
 from rsoccer_gym.Entities import Ball, Frame, Robot
 from rsoccer_gym.ssl.ssl_gym_base import SSLBaseEnv
+import rsoccer_gym.Render.ball as render_ball
+render_ball.Ball.radius = 0.08  # 7x bigger for visibility
 
 
 class SSLSingleRobot(SSLBaseEnv):
@@ -41,6 +43,7 @@ class SSLSingleRobot(SSLBaseEnv):
         self.episode_steps = 0
         self.max_steps = 1200
 
+
     def _frame_to_observations(self):
         ball = self.frame.ball
         robot = self.frame.robots_blue[0]
@@ -50,8 +53,8 @@ class SSLSingleRobot(SSLBaseEnv):
         return np.array([
         ball.x / fl,
         ball.y / fw,
-        ball.v_x / self.max_v,
-        ball.v_y / self.max_v,
+        ball.v_x / self.KICK_SPEED,  # was self.max_v
+        ball.v_y / self.KICK_SPEED,  # was self.max_v
         robot.x / fl,
         robot.y / fw,
         np.sin(angle_rad),
@@ -114,45 +117,29 @@ class SSLSingleRobot(SSLBaseEnv):
             last_dist = np.linalg.norm([goal_x - last_ball.x, last_ball.y])
             reward_progress = (last_dist - current_dist)
 
+        reward_kick = self.frame.ball.v_x / self.KICK_SPEED
+
         # Check goal condition
         if ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2:
-            return 100 + 0.1 * reward_proximity + 0.9 * reward_progress, True
+            return 100 + 0.1 * reward_proximity + 0.8 * reward_progress + 0.1 * reward_kick, True
 
-        return 0.1 * reward_proximity + 0.9 * reward_progress, False
+        return 0.1 * reward_proximity + 0.8 * reward_progress + 0.1 * reward_kick, False
     
     def _get_initial_positions_frame(self):
         self.episode_steps = 0
         pos_frame = Frame()
-        fl = self.field.length
-        gw = self.field.goal_width
 
         # Ball spawns in the attacking third, near the goal
         pos_frame.ball = Ball(
-            x=np.random.uniform(fl / 3, fl / 2),
-            y=np.random.uniform(-gw, gw)
+        x=np.random.uniform(self.field.length / 3, self.field.length / 2 - 1.0),
+        y=np.random.uniform(-self.field.goal_width, self.field.goal_width)
         )
 
         # Robot spawns behind the ball (lower x) in the same area
         pos_frame.robots_blue[0] = Robot(
-            x=np.random.uniform(0, pos_frame.ball.x),
-            y=np.random.uniform(-gw, gw),
-            theta=np.random.uniform(0, 360)
+        x=np.random.uniform(max(0, pos_frame.ball.x - 2.0), pos_frame.ball.x - 0.3),
+        y=np.random.uniform(-self.field.goal_width, self.field.goal_width),
+        theta=np.random.uniform(0, 360)
         )
-
-        # Ensure robot doesn't spawn too close to ball
-        dist = np.linalg.norm([
-            pos_frame.robots_blue[0].x - pos_frame.ball.x,
-            pos_frame.robots_blue[0].y - pos_frame.ball.y
-        ])
-        while dist < 0.5:
-            pos_frame.robots_blue[0] = Robot(
-                x=np.random.uniform(0, pos_frame.ball.x),
-                y=np.random.uniform(-gw, gw),
-                theta=np.random.uniform(0, 360)
-            )
-            dist = np.linalg.norm([
-                pos_frame.robots_blue[0].x - pos_frame.ball.x,
-                pos_frame.robots_blue[0].y - pos_frame.ball.y
-            ])
-
+       
         return pos_frame
