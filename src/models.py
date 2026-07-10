@@ -52,11 +52,10 @@ class MLP_actor(nn.Module):
 class TokenLayout:
     """How a flat observation vector splits into per-entity tokens.
 
-    The observation is assumed ordered ball -> teammates -> opponents (the
-    rSoccer convention). The first `n_controlled` teammate slots are the
-    robots the policy commands; the remaining teammates are observed only.
-    All weight shapes derived from a layout are independent of the entity
-    counts, so checkpoints transfer across team sizes.
+    The observation is assumed ordered ball -> teammates -> opponents. Every
+    teammate token is commanded by the policy (the whole team is one shared
+    agent) - all weight shapes derived from a layout are independent of the
+    entity counts, so checkpoints transfer across team sizes.
     """
 
     ball_dim: int
@@ -64,7 +63,6 @@ class TokenLayout:
     teammate_dim: int
     n_opponents: int
     opponent_dim: int
-    n_controlled: int
 
     @property
     def obs_dim(self) -> int:
@@ -79,28 +77,21 @@ class TokenLayout:
         return 1 + self.n_teammates + self.n_opponents
 
 
-TOKEN_LAYOUTS: dict[str, TokenLayout] = {
-    # myenvs SSLSingleRobot: ball [x, y, vx, vy],
-    # robot [x, y, sin(θ), cos(θ), vx, vy, vθ]
-    "SSLSingleRobot-v0": TokenLayout(
-        ball_dim=4, n_teammates=1, teammate_dim=7,
-        n_opponents=0, opponent_dim=5, n_controlled=1,
-    ),
-    # rSoccer VSS 3v3; only blue robot 0 is commanded, teammates run on OU noise
-    "VSS-v0": TokenLayout(
-        ball_dim=4, n_teammates=3, teammate_dim=7,
-        n_opponents=3, opponent_dim=5, n_controlled=1,
-    ),
-}
+def token_layout_from_env(envs) -> TokenLayout:
+    """Build a TokenLayout from a vector env's live attributes.
 
-
-def get_token_layout(env_id: str) -> TokenLayout:
-    try:
-        return TOKEN_LAYOUTS[env_id]
-    except KeyError:
-        raise KeyError(
-            f"No token layout registered for env '{env_id}'; add one to models.TOKEN_LAYOUTS"
-        ) from None
+    Mirrors how obs_dim/act_dim are already read off envs.single_observation_space /
+    single_action_space for the MLP path: no per-env registry, any env works as long
+    as its class declares BALL_DIM/TEAMMATE_DIM/OPPONENT_DIM (entity counts alone
+    can't be recovered from a flat Box shape - see myenvs.SingleRobot.SSLSingleRobot
+    for the convention).
+    """
+    (n_teammates,) = set(envs.get_attr("n_robots_blue"))
+    (n_opponents,) = set(envs.get_attr("n_robots_yellow"))
+    (ball_dim,) = set(envs.get_attr("BALL_DIM"))
+    (teammate_dim,) = set(envs.get_attr("TEAMMATE_DIM"))
+    (opponent_dim,) = set(envs.get_attr("OPPONENT_DIM"))
+    return TokenLayout(ball_dim, n_teammates, teammate_dim, n_opponents, opponent_dim)
 
 
 class TransformerBackbone(nn.Module):
@@ -152,16 +143,17 @@ class TransformerBackbone(nn.Module):
 
 
 class TransformerActor(nn.Module):
-    """Shared action head applied to each controlled robot's output token.
+    """Shared action head applied to every teammate's output token.
 
-    Only own-robot tokens are read out — ball/opponent tokens inform the
-    result via attention only. One head shared across tokens emits an action
-    per robot, which is what makes the weights independent of team size.
+    Every teammate token is read out — the whole team is one shared policy —
+    while ball/opponent tokens inform the result via attention only. One head
+    shared across tokens emits an action per robot, which is what makes the
+    weights independent of team size.
     """
 
     def __init__(self, layout: TokenLayout, act_dim_per_robot, d_model, n_layers, n_heads, ff_dim, dropout):
         super().__init__()
-        self.n_controlled = layout.n_controlled
+        self.n_teammates = layout.n_teammates
         self.backbone = TransformerBackbone(layout, d_model, n_layers, n_heads, ff_dim, dropout)
         self.action_head = nn.Sequential(
             layer_init(nn.Linear(d_model, d_model)),
@@ -174,9 +166,9 @@ class TransformerActor(nn.Module):
 
     def forward(self, ball, teammates, opponents):
         hidden = self.backbone(ball, teammates, opponents)
-        # token order is ball, teammates, opponents -> controlled robots start at 1
-        own = hidden[:, 1 : 1 + self.n_controlled]
-        return self.action_head(own)  # (B, n_controlled, act_dim_per_robot)
+        # token order is ball, teammates, opponents -> teammates start at 1
+        own = hidden[:, 1 : 1 + self.n_teammates]
+        return self.action_head(own)  # (B, n_teammates, act_dim_per_robot)
 
 
 class TransformerCritic(nn.Module):

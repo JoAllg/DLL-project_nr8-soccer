@@ -8,8 +8,11 @@
    2. Environment and PPO/RPO adoption (Joshua)
    3. Creating VSS environment with one Robot + Ball (init at random position), Rewards (Muskan)
    4. Add this environment to the PPO algorithm (Tobias)
-   5. HPO, Reward shaping
-   6. Add Transformer Encorder (Joshua)
+   5. Dynamic Environment (Tobias)
+   6. (automatic) HPO
+   7. Reward shaping
+   8. Add Transformer Encorder (Joshua)
+      1. DDP
 2. Increasing Team sizes (stepwise), adapting Rewards, improving lea
    - ~Parallelize environments (simulation) with random actions and step them/backropagate in steps (policy gradient).~
    - Rewards that faciliate/shape cooperative teamwork

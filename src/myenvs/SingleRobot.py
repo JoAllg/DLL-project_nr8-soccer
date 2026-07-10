@@ -22,6 +22,12 @@ class SSLSingleRobot(SSLBaseEnv):
     MAX_W = 10.0      # rad/s
     KICK_SPEED = 10.0 # m/s
 
+    # Per-entity token feature widths (models.token_layout_from_env reads these);
+    # must match the segments _frame_to_observations() lays out below.
+    BALL_DIM = 4       # [x, y, vx, vy]
+    TEAMMATE_DIM = 7   # [x, y, sin(θ), cos(θ), vx, vy, vθ]
+    OPPONENT_DIM = 5   # [x, y, vx, vy, vθ] (no heading observed for opponents)
+
     def __init__(self, render_mode=None):
         super().__init__(
             field_type=0,

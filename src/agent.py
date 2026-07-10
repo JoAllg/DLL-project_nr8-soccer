@@ -12,7 +12,6 @@ class Agent(nn.Module):
         envs,
         rpo_alpha,
         agent_type="mlp",
-        env_id=None,
         d_model=64,
         n_layers=2,
         n_heads=4,
@@ -30,16 +29,15 @@ class Agent(nn.Module):
             self.critic = models.MLP_critic(obs_dim)
             self.actor_mean = models.MLP_actor(obs_dim, act_dim_total)
         elif agent_type == "transformer":
-            assert env_id is not None, "env_id is required for the transformer agent"
-            layout = models.get_token_layout(env_id)
+            layout = models.token_layout_from_env(envs)
             assert layout.obs_dim == obs_dim, (
-                f"token layout for '{env_id}' expects obs dim {layout.obs_dim}, env has {obs_dim}"
+                f"derived token layout expects obs dim {layout.obs_dim}, env has {obs_dim}"
             )
-            assert act_dim_total % layout.n_controlled == 0, (
-                f"action dim {act_dim_total} is not divisible by {layout.n_controlled} controlled robots"
+            assert act_dim_total % layout.n_teammates == 0, (
+                f"action dim {act_dim_total} is not divisible by {layout.n_teammates} teammates"
             )
             self.layout = layout
-            act_dim_per_robot = act_dim_total // layout.n_controlled
+            act_dim_per_robot = act_dim_total // layout.n_teammates
             # two separately-trained transformers, same backbone architecture
             # (why: see TransformerCritic docstring). Actor and critic see the
             # same full state — no privileged critic, since no hidden/sensor
@@ -53,8 +51,8 @@ class Agent(nn.Module):
             )
             # static scaling to ~[-1, 1] (permutation-safe, unlike NormalizeObservation);
             # near-redundant for envs that already normalize and declare matching bounds
-            # (e.g. VSS: ±1.2 → harmless ÷1.2), but does the real work for envs returning
-            # raw units — requires the declared Box bounds to match the returned values.
+            # (harmless ÷1 in that case), but does the real work for envs returning raw
+            # units — requires the declared Box bounds to match the returned values.
             # non-persistent: derived from the env, and its shape depends on the team size
             high = np.asarray(envs.single_observation_space.high, dtype=np.float32).reshape(-1)
             scale = np.where(np.isfinite(high) & (high > 0), high, 1.0)
@@ -98,11 +96,11 @@ class Agent(nn.Module):
     def get_action_and_value(self, x, action=None):
         if self.agent_type == "transformer":
             tokens = self._tokenize(x)
-            # (B, n_controlled, act_dim_per_robot) -> flat (B, act_dim_total) for the Gaussian
+            # (B, n_teammates, act_dim_per_robot) -> flat (B, act_dim_total) for the Gaussian
             action_mean = self.actor(*tokens).reshape(x.shape[0], -1)
             value = self.critic(*tokens)
-            # tile the shared per-robot logstd across controlled robots (flat, robot-major)
-            action_logstd = self.actor_logstd.repeat(1, self.layout.n_controlled).expand_as(action_mean)
+            # tile the shared per-robot logstd across teammates (flat, robot-major)
+            action_logstd = self.actor_logstd.repeat(1, self.layout.n_teammates).expand_as(action_mean)
         else:
             action_mean = self.actor_mean(x)
             value = self.critic(x)
@@ -117,7 +115,7 @@ class Agent(nn.Module):
             z = torch.FloatTensor(action_mean.shape).uniform_(-self.rpo_alpha, self.rpo_alpha).to(x.device)
             action_mean = action_mean + z
             probs = Normal(action_mean, action_std)
-        # joint log-prob/entropy: sum over action dims AND controlled robots →
+        # joint log-prob/entropy: sum over action dims AND teammates →
         # one scalar per env. The whole team is a single PPO "agent", and the
         # joint log-prob factorizes into this sum because robots are
         # conditionally independent given the shared encoding.

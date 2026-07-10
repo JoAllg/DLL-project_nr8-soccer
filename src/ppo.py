@@ -164,7 +164,7 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True):
             env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
-        # no NormalizeObservation/clip here: rSoccer envs (VSS-v0) already normalize
+        # no NormalizeObservation/clip here: our rSoccer-based envs already normalize
         # observations themselves, so a running-stats wrapper on top would rescale
         # an already-bounded signal against a moving mean/variance for no benefit
         env = gym.wrappers.NormalizeReward(env, gamma=gamma)
@@ -250,9 +250,6 @@ if __name__ == "__main__":
         ]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-    if is_main:
-        print("envs.single_action_space.shape:", envs.single_action_space.shape)
-        print("envs.single_observation_space.shape:", envs.single_observation_space.shape)
 
     if is_distributed:
         # Manual-all_reduce DDP (see deps/ddp_transformer.md) is NCCL/CUDA-only by
@@ -269,7 +266,6 @@ if __name__ == "__main__":
         envs,
         args.rpo_alpha,
         agent_type=args.agent_type,
-        env_id=args.env_id,
         d_model=args.d_model,
         n_layers=args.n_layers,
         n_heads=args.n_heads,

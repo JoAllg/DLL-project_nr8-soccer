@@ -106,7 +106,6 @@ def evaluate(
         envs,
         rpo_alpha,
         agent_type=agent_type,
-        env_id=env_id,
         d_model=d_model,
         n_layers=n_layers,
         n_heads=n_heads,
