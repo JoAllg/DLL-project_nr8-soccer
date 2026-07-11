@@ -79,7 +79,7 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 2048
+    num_steps: int = 2048*2
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 32
     """the number of mini-batches"""
