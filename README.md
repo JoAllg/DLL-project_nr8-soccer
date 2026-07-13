@@ -35,6 +35,16 @@ Otherwise (ODE available system-wide):
 uv sync --all-extras
 ```
 
+## Usage
+Via uv you can run the training with
+```
+uv run src/ppo.py --track --capture-video --save-model
+```
+To use multiple GPUs do
+```
+uv run torchrun --standalone --nnodes=1 --nproc_per_node=<NUM_GPUS> src/ppo.py --track --capture-video --save-model
+```
+
 # References
 
 - The PPO Algorithm is based on [https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py) / [https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy](https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy)
