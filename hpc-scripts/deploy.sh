@@ -37,6 +37,11 @@ trap 'rm -f "$HPC_IDENTITY_FILE" "$JUMPHOST_IDENTITY_FILE"' EXIT
 identity_lines HPC_IDENTITY > "$HPC_IDENTITY_FILE"
 identity_lines JUMPHOST_IDENTITY > "$JUMPHOST_IDENTITY_FILE"
 
+echo "  HPC identity files:"
+sed 's/^/  /' "$HPC_IDENTITY_FILE"
+echo "  Jumphost identity files:"
+sed 's/^/  /' "$JUMPHOST_IDENTITY_FILE"
+
 sed -e "s|{{HPC_HOST}}|${HPC_HOST}|g" \
     -e "s|{{HPC_USER}}|${HPC_USER}|g" \
     -e "s|{{JUMPHOST_HOST}}|${JUMPHOST_HOST}|g" \
@@ -47,6 +52,8 @@ sed -e "s|{{HPC_HOST}}|${HPC_HOST}|g" \
     -e "/{{JUMPHOST_IDENTITY_LINES}}/r ${JUMPHOST_IDENTITY_FILE}" \
     -e "/{{JUMPHOST_IDENTITY_LINES}}/d" \
     "$SCRIPT_DIR/hpc_config.template" > "$HPC_CONFIG"
+
+echo "  Created ~/.ssh/hpc_config"
 
 # cp "$SCRIPT_DIR/connect-hpc-node.sh" "$HOME/.ssh/connect-hpc-node.sh"
 # chmod +x "$HOME/.ssh/connect-hpc-node.sh"
