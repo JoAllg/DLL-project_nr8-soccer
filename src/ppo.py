@@ -69,7 +69,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "SSLSingleRobot-v0"
     """the id of the environment"""
-    total_timesteps: int = 30000000
+    total_timesteps: int = 20000000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -122,13 +122,13 @@ class Args:
     # Agent architecture arguments
     agent_type: Literal["mlp", "transformer"] = "transformer"
     """the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer"""
-    d_model: int = 128
+    d_model: int = 256
     """(transformer) the model/embedding dimension"""
-    n_layers: int = 2
+    n_layers: int = 4
     """(transformer) the number of encoder layers"""
-    n_heads: int = 4
+    n_heads: int = 8
     """(transformer) the number of attention heads (must divide d_model)"""
-    ff_dim: int = 256
+    ff_dim: int = 512
     """(transformer) the feedforward dimension inside encoder layers"""
     dropout: float = 0.0 # Should not be used (RPO/PPO regularize with action-mean perturbation and sampling noise)
     """(transformer) dropout inside encoder layers"""
