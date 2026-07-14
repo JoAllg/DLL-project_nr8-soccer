@@ -33,11 +33,8 @@ class Agent(nn.Module):
             self.actor_mean = models.MLP_actor(obs_dim, act_dim_total)
         elif agent_type == "transformer":
             layout, act_dim_per_robot = self._derive_layout(envs)
-            # two separately-trained transformers, same backbone architecture
-            # (why: see TransformerCritic docstring). Actor and critic see the
-            # same full state — no privileged critic, since no hidden/sensor
-            # information exists here to grant, and identical scope means no
-            # input change when self-play starts.
+            # actor and critic see the same full state - no privileged critic,
+            # nothing hidden to grant it, and no input change once self-play starts
             self.actor = models.TransformerActor(
                 layout, act_dim_per_robot, d_model, n_layers, n_heads, ff_dim, dropout
             )
@@ -47,19 +44,14 @@ class Agent(nn.Module):
             self._apply_layout(envs, layout)
         else:
             raise ValueError(f"unknown agent_type '{agent_type}'")
-        # diagonal Gaussian with a learned global (state-independent) logstd,
-        # as in the proven base RPO code — simplest parameterization.
-        # transformer: one logstd per per-robot action dim, shared across robots, so the
-        # parameter shape stays independent of the team size (checkpoint transfer)
+        # diagonal Gaussian, learned global (state-independent) logstd;
+        # transformer: one per per-robot action dim, shared across robots (team-size independent)
         logstd_dim = act_dim_per_robot if agent_type == "transformer" else act_dim_total
         self.actor_logstd = nn.Parameter(torch.zeros(1, logstd_dim))
 
     def _derive_layout(self, envs):
-        """Read a TokenLayout + per-robot action width off `envs`, self-consistency-checked.
-
-        Shared by __init__ (first-time sizing) and set_env (re-pointing) so the
-        derivation/validation logic only lives in one place.
-        """
+        """Read a TokenLayout + per-robot action width off `envs`, consistency-checked.
+        Shared by __init__ and set_env."""
         layout = models.token_layout_from_env(envs)
         obs_dim = int(np.array(envs.single_observation_space.shape).prod())
         act_dim_total = int(np.prod(envs.single_action_space.shape))
@@ -76,11 +68,9 @@ class Agent(nn.Module):
         self.layout = layout
         self.action_shape = envs.single_action_space.shape
         self.actor.n_teammates = layout.n_teammates
-        # static scaling to ~[-1, 1] (permutation-safe, unlike NormalizeObservation);
-        # near-redundant for envs that already normalize and declare matching bounds
-        # (harmless ÷1 in that case), but does the real work for envs returning raw
-        # units — requires the declared Box bounds to match the returned values.
-        # non-persistent: derived from the env, and its shape depends on the team size
+        # static scaling to ~[-1, 1], permutation-safe unlike NormalizeObservation;
+        # requires declared Box bounds to match returned values
+        # non-persistent: shape depends on team size, derived fresh from the env
         high = np.asarray(envs.single_observation_space.high, dtype=np.float32).reshape(-1)
         scale = np.where(np.isfinite(high) & (high > 0), high, 1.0)
         device = self.obs_scale.device if hasattr(self, "obs_scale") else "cpu"
@@ -89,13 +79,9 @@ class Agent(nn.Module):
     def set_env(self, envs):
         """Repoint an already-built transformer agent at a differently-sized env.
 
-        Team/opponent *counts* are free to change — the backbone is per-entity-type,
-        not per-slot, so ball_embed/teammate_embed/opponent_embed/encoder/heads keep
-        their weights unchanged; only the layout bookkeeping used to tokenize obs and
-        reshape actions needs updating. Per-entity feature widths (ball_dim/
-        teammate_dim/opponent_dim) and the per-robot action width, by contrast, are
-        fixed project conventions baked into those weight shapes — a mismatch means a
-        new Agent (or at best a partial load_state_dict), not a live swap.
+        Team/opponent counts are free to change (backbone is per-entity-type,
+        not per-slot). Per-entity feature widths and per-robot action width are
+        baked into weight shapes, so those must match or this needs a new Agent.
         """
         assert self.agent_type == "transformer", "set_env only applies to the transformer agent"
         layout, act_dim_per_robot = self._derive_layout(envs)
@@ -112,8 +98,8 @@ class Agent(nn.Module):
         self._apply_layout(envs, layout)
 
     def _tokenize(self, x):
-        """Slice a flat obs batch into (ball, teammates, opponents) token groups,
-        each scaled and with the [team_size, opp_size] count features appended."""
+        """Slice a flat obs batch into scaled (ball, teammates, opponents) token
+        groups, each with [team_size, opp_size] count features appended."""
         layout = self.layout
         obs = x / self.obs_scale
         batch_size = obs.shape[0]
@@ -124,9 +110,8 @@ class Agent(nn.Module):
         ball = obs[:, :ball_end].reshape(batch_size, 1, layout.ball_dim)
         teammates = obs[:, ball_end:teammates_end].reshape(batch_size, layout.n_teammates, layout.teammate_dim)
         opponents = obs[:, teammates_end:].reshape(batch_size, layout.n_opponents, layout.opponent_dim)
-        # team-size features - the only size signal (no padding/masking).
-        # n/N_MAX keeps them in (0, 1] for every team size; raw counts would
-        # push embeddings out of distribution at sizes beyond those trained
+        # only size signal (no padding/masking); n/N_MAX keeps it in (0, 1]
+        # so untrained team sizes don't push embeddings out of distribution
         # (see wiki/team-size-generalization.md)
         count_features = obs.new_tensor(
             [layout.n_teammates / N_MAX, layout.n_opponents / N_MAX]
@@ -158,16 +143,13 @@ class Agent(nn.Module):
         probs = Normal(action_mean, action_std)
         if action is None:
             action = probs.sample()
-        else:  # new to RPO
-            # sample again to add stochasticity to the policy
+        else:  # RPO: perturb the stored action's mean before re-evaluating
             action = action.reshape(x.shape[0], -1)
             z = torch.FloatTensor(action_mean.shape).uniform_(-self.rpo_alpha, self.rpo_alpha).to(x.device)
             action_mean = action_mean + z
             probs = Normal(action_mean, action_std)
-        # joint log-prob/entropy: sum over action dims AND teammates →
-        # one scalar per env. The whole team is a single PPO "agent", and the
-        # joint log-prob factorizes into this sum because robots are
-        # conditionally independent given the shared encoding.
+        # sum over action dims and teammates: whole team is one PPO agent,
+        # robots conditionally independent given the shared encoding
         logprob = probs.log_prob(action).sum(1)
         entropy = probs.entropy().sum(1)
         action = action.reshape((x.shape[0],) + self.action_shape)

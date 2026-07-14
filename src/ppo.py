@@ -14,18 +14,12 @@ if not os.environ.get("DISPLAY") and "MUJOCO_GL" not in os.environ:
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-# shimmy pulls in pygame, whose pkgdata.py emits a pkg_resources deprecation warning
 warnings.filterwarnings(
     "ignore",
     message="pkg_resources is deprecated as an API",
     category=UserWarning,
     module="pygame.pkgdata",
 )
-# AsyncVectorEnv builds a throwaway env_fns[0]() in the main process to introspect
-# obs/action spaces before forking the real per-env worker subprocess, so RecordVideo
-# ends up constructed twice for the same video_folder, and gymnasium warns about it.
-# gymnasium.logger.warn() prepends an ANSI color code + "WARN: " before the message,
-# hence the leading ".*" (filterwarnings anchors "message" at the start of the string).
 warnings.filterwarnings(
     "ignore",
     message=".*Overwriting existing videos.*",
@@ -168,7 +162,7 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True):
         # observations themselves, so a running-stats wrapper on top would rescale
         # an already-bounded signal against a moving mean/variance for no benefit
         env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
+        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))  # pyright: ignore[reportArgumentType, reportCallIssue]
         return env
 
     return thunk
@@ -176,19 +170,15 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    # Distributed (single-node torchrun) setup. Read env vars only — CUDA must not
-    # be touched before AsyncVectorEnv forks its workers (see env setup below), so
-    # the CUDA check and process-group init happen at device selection instead.
-    # LOCAL_RANK doubles as the global rank (single-node --standalone assumption).
+    # single-node torchrun; LOCAL_RANK doubles as global rank. CUDA init is
+    # deferred to device selection below, after AsyncVectorEnv forks workers.
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     is_distributed = world_size > 1
     is_main = local_rank == 0
 
-    # --num-envs is global and split across ranks; the global batch size (and with
-    # it every derived hyperparameter) is independent of world_size. Each rank runs
-    # the same num_minibatches count per epoch, so optimizer/scheduler step counts
-    # match the single-process run exactly.
+    # num_envs is global, split across ranks; derived hyperparameters stay
+    # independent of world_size so step counts match the single-process run.
     assert args.num_envs % world_size == 0, "num_envs must be divisible by world_size"
     local_num_envs = args.num_envs // world_size
     local_batch_size = local_num_envs * args.num_steps
@@ -233,13 +223,9 @@ if __name__ == "__main__":
     utils.set_seed(args.seed, args.torch_deterministic)
 
     # env setup
-    # AsyncVectorEnv forks worker subprocesses (default multiprocessing start
-    # method on Linux). Construct it before utils.get_device() touches CUDA -
-    # forking a process with an already-initialized CUDA context is unsafe and
-    # can deadlock a worker later (e.g. on its first subprocess spawn for video
-    # encoding), rather than failing immediately.
-    # each rank runs its own local slice of the envs; every rank has an idx==0 env,
-    # so video capture must additionally be gated to rank 0
+    # built before utils.get_device() touches CUDA: forking a process with an
+    # already-initialized CUDA context can deadlock a worker later
+    # every rank has an idx==0 env, so video capture is also gated to rank 0
     envs = gym.vector.AsyncVectorEnv(
         [
             make_env(
@@ -273,10 +259,7 @@ if __name__ == "__main__":
         dropout=args.dropout,
         critic_pooling=args.critic_pooling,
     ).to(device)
-    # AdamW instead of Adam, after cleanrl ppo_trxl.py: decoupled weight
-    # decay is the standard transformer regularizer. Decay only matrix weights — biases,
-    # LayerNorms, actor_logstd and the PMA pool_query are excluded (decaying actor_logstd
-    # toward 0 would fight the learned exploration schedule).
+    # AdamW, after cleanrl ppo_trxl.py; decay only matrix weights; standard transformer regularizer.
     no_decay = {"actor_logstd", "critic.pool_query"}
     decay_params = [p for n, p in agent.named_parameters() if p.ndim >= 2 and n not in no_decay]
     other_params = [p for n, p in agent.named_parameters() if p.ndim < 2 or n in no_decay]
@@ -288,9 +271,7 @@ if __name__ == "__main__":
         lr=args.learning_rate,
         eps=1e-5,
     )
-    # cosine-with-warmup instead of CleanRL's linear anneal: linear warmup
-    # protects the fresh transformer from large early Adam steps, then cosine
-    # decays onto an LR floor (see CosineWarmupScheduler.py)
+    # cosine-with-warmup instead of CleanRL's linear anneal (see CosineWarmupScheduler.py); standard for transformers too.
     scheduler = None
     if args.anneal_lr:
         total_optimizer_steps = args.num_iterations * args.update_epochs * args.num_minibatches
@@ -310,7 +291,7 @@ if __name__ == "__main__":
         np.random.seed(args.seed + local_rank)
 
     # ALGO Logic: Storage setup
-    obs = torch.zeros((args.num_steps, local_num_envs) + envs.single_observation_space.shape).to(device)
+    obs = torch.zeros((args.num_steps, local_num_envs) + envs.single_observation_space.shape).to(device)  # pyright: ignore[reportOperatorIssue]
     actions = torch.zeros((args.num_steps, local_num_envs) + envs.single_action_space.shape).to(device)
     logprobs = torch.zeros((args.num_steps, local_num_envs)).to(device)
     rewards = torch.zeros((args.num_steps, local_num_envs)).to(device)
@@ -357,7 +338,7 @@ if __name__ == "__main__":
             rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
 
-            #fixed logging (rank 0 only; its envs are an accepted approximation of the fleet)
+            #fixed logging (rank 0 only; its envs are an accepted approximation for the parallel runs)
             if writer is not None and "episode" in infos:
                 for i, r in enumerate(infos["episode"]["r"]):
                     if infos["_episode"][i]:
@@ -382,7 +363,7 @@ if __name__ == "__main__":
             returns = advantages + values
 
         # flatten the batch
-        b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
+        b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)  # pyright: ignore[reportOperatorIssue]
         b_logprobs = logprobs.reshape(-1)
         b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
         b_advantages = advantages.reshape(-1)
@@ -438,9 +419,7 @@ if __name__ == "__main__":
                 optimizer.zero_grad()
                 loss.backward()
                 if is_distributed:
-                    # average grads across ranks before clip/step so every rank takes
-                    # the same optimizer step and weights stay identical (covers actor,
-                    # critic and actor_logstd — all under agent.parameters())
+                    # average grads across ranks so every rank takes the same step
                     for param in agent.parameters():
                         if param.grad is not None:
                             dist.all_reduce(param.grad.data, op=dist.ReduceOp.AVG)
@@ -450,8 +429,7 @@ if __name__ == "__main__":
                     scheduler.step()
 
             if args.target_kl is not None:
-                # approx_kl is rank-local; the break must be unanimous or the ranks
-                # still training would deadlock in all_reduce
+                # break must be unanimous across ranks or all_reduce below deadlocks
                 kl_stop = torch.tensor(float(approx_kl > args.target_kl), device=device)
                 if is_distributed:
                     dist.all_reduce(kl_stop, op=dist.ReduceOp.MAX)
@@ -508,7 +486,7 @@ if __name__ == "__main__":
     envs.close()
 
     if is_main and args.track and args.capture_video:
-        # final flush: two polls to catch the last video when its creation is done (needs a stable-size pass)
+        # two polls: catches the last videe once its size stabilizes (upload to wandb)
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
