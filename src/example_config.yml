@@ -1,0 +1,20 @@
+defaults: &defaults
+  steps: 8000000
+
+stages:
+  - name: "1 Single robot shoot"
+    <<: *defaults
+    environment:
+      n_robots_blue: 1
+      n_robots_yellow: 0
+
+  - name: "2 multiple robots"
+    steps: 40000
+    <<: *defaults
+
+  - name: "end stage"
+    <<: *defaults
+    environment:
+      n_robots_blue: 3
+      n_robots_yellow: 3
+

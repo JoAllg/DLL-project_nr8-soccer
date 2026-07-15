@@ -19,6 +19,8 @@ dependencies = [
     "rich<12.0",
     "tenacity>=8.2.2",
     "tyro>=0.5.10",
+    "pyyaml>=6.0.3",
+    "pydantic>=2.13.4",
 ]
 
 [tool.uv.sources]

@@ -7,7 +7,7 @@ import gymnasium as gym
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import myenvs  # noqa: E402
 
-env = gym.make('SSLSingleRobot-v0', render_mode="human")
+env = gym.make('SSLDynamicRobots-v0', render_mode="human")
 env.reset()
 
 # Run simulation (you can add your agent logic here)
