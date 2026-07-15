@@ -44,6 +44,7 @@ from scheduler.CosineWarmupScheduler import get_cosine_schedule_with_warmup
 # import environments
 import rsoccer_gym  # noqa: F401
 import myenvs  # noqa: F401
+from config import load_config
 
 @dataclass
 class Args:
@@ -67,7 +68,7 @@ class Args:
     """whether to save model into the `runs/{run_name}` folder"""
 
     # Algorithm specific arguments
-    env_id: str = "SSLSingleRobot-v0"
+    env_id: str = "SSLDynamicRobots-v0"
     """the id of the environment"""
     total_timesteps: int = 20000000
     """total timesteps of the experiments"""
@@ -142,15 +143,19 @@ class Args:
     """the mini-batch size (computed in runtime)"""
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
+    config: Optional[str] = None
+    """path to yaml file providing configuration training stages and environments"""
 
 
-def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True):
+def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
+             environment_args: Optional[dict]= None):
     def thunk():
         if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array")
+            env = gym.make(env_id, render_mode="rgb_array", **(environment_args
+                                                               or {}))
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
-            env = gym.make(env_id)
+            env = gym.make(env_id, **(environment_args or {}))
         # flatten only for the MLP (and dm_control's Dict obs); the transformer
         # agent skips it — flattening would destroy the per-entity structure it
         # re-parses into tokens
@@ -221,6 +226,13 @@ if __name__ == "__main__":
 
     # TRY NOT TO MODIFY: seeding
     utils.set_seed(args.seed, args.torch_deterministic)
+    
+    # load stages with environment arguments from config.yml
+    config = load_config(args.config) if args.config else None
+
+    first_env_args = None
+    if config:
+        first_env_args = config.stages[0].environment.model_dump()
 
     # env setup
     # built before utils.get_device() touches CUDA: forking a process with an
@@ -231,6 +243,7 @@ if __name__ == "__main__":
             make_env(
                 args.env_id, i, args.capture_video and is_main, run_name, args.gamma,
                 flatten=args.agent_type == "mlp",
+                environment_args=first_env_args
             )
             for i in range(local_num_envs)
         ]

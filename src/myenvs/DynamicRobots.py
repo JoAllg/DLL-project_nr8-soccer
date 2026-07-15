@@ -130,9 +130,6 @@ class SSLDynamicRobots(SSLBaseEnv):
 
         for robot_id in range(self.n_robots_blue):
             robot_actions = actions[robot_id]
-            print("hallo")
-            print(robot_actions)
-            print("end hallo")
             angle_rad = np.deg2rad(self.frame.robots_blue[robot_id].theta)
 
             v_x = robot_actions[0] * self.MAX_V
