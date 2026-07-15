@@ -52,7 +52,7 @@ class SSLDynamicRobots(SSLBaseEnv):
     # must match the segments _frame_to_observations() lays out below.
     BALL_DIM = 4       # [x, y, vx, vy]
     TEAMMATE_DIM = 7   # [x, y, sin(θ), cos(θ), vx, vy, vθ]
-    OPPONENT_DIM = 5   # [x, y, vx, vy, vθ] (no heading observed for opponents)
+    OPPONENT_DIM = 7   # [x, y, vx, vy, vθ] (no heading observed for opponents)
 
     def __init__(self, render_mode=None, field_type=1, n_robots_blue=2,
                  n_robots_yellow=0):

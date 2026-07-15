@@ -1,5 +1,5 @@
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from typing import Optional
 
 class Environment(BaseModel):
@@ -30,7 +30,7 @@ class Stage(BaseModel):
 class Config(BaseModel):
     # required fields — must be present
     # ---------------------------------
-    stages: list[Stage]
+    stages: list[Stage] = Field(min_length=1)
 
     # optional fields — can be omitted
     # ---------------------------------
@@ -39,11 +39,28 @@ class Config(BaseModel):
     # reject any field not defined above
     model_config = ConfigDict(extra="forbid")
 
+    _name_to_index: dict[str, int] = PrivateAttr(default_factory=dict)
+
+    # this method run after the complete model is initialized
+    def model_post_init(self, __context) -> None:
+        self._name_to_index = {stage.name: i for i, stage in enumerate(self.stages)}
+
+    def get_stages_from_name(self, names: Optional[list[str]]) -> list[int]:
+        if not names:
+            return [i for i in range(len(self.stages))]
+        missing = [name for name in names if name not in self._name_to_index]
+        if missing:
+            raise ValueError(f" stage names not found in config: {missing}")
+        return [self._name_to_index[name] for name in names]
+
+
+
 
 def load_config(path: str) -> Config:
     with open(path) as f:
         raw = yaml.safe_load(f)
     return Config(**raw)
+
 
 # test reading the config
 if __name__ == "__main__":

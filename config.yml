@@ -1,12 +1,12 @@
 defaults: &defaults
-  steps: 8000000
+  steps: 8000
 
 stages:
   - name: "1 Single robot shoot"
     <<: *defaults
     environment:
       n_robots_blue: 3
-      n_robots_yellow: 0
+      n_robots_yellow: 2
 
   - name: "2 robots"
     environment:

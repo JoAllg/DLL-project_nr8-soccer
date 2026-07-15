@@ -143,8 +143,11 @@ class Args:
     """the mini-batch size (computed in runtime)"""
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
-    config: Optional[str] = None
+    config: str = "config.yml"
     """path to yaml file providing configuration training stages and environments"""
+    stages: Optional[list[str]] = None
+    """which stage of the config file should be executed. None: execute all stages in
+    Order"""
 
 
 def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
@@ -172,119 +175,28 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
 
     return thunk
 
-
-if __name__ == "__main__":
-    args = tyro.cli(Args)
-    # single-node torchrun; LOCAL_RANK doubles as global rank. CUDA init is
-    # deferred to device selection below, after AsyncVectorEnv forks workers.
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
-    is_distributed = world_size > 1
-    is_main = local_rank == 0
-
-    # num_envs is global, split across ranks; derived hyperparameters stay
-    # independent of world_size so step counts match the single-process run.
-    assert args.num_envs % world_size == 0, "num_envs must be divisible by world_size"
-    local_num_envs = args.num_envs // world_size
-    local_batch_size = local_num_envs * args.num_steps
-    assert local_batch_size % args.num_minibatches == 0, "local batch size must be divisible by num_minibatches"
-    local_minibatch_size = local_batch_size // args.num_minibatches
-    args.batch_size = int(args.num_envs * args.num_steps)
-    args.minibatch_size = int(args.batch_size // args.num_minibatches)
-    args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
-    writer = None
-    if is_main:
-        if args.track:
-            # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
-            # reporting only; unrelated to our logging)
-            os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
-            import wandb
-
-            wandb.init(
-                project=args.wandb_project_name,
-                entity=args.wandb_entity,
-                sync_tensorboard=True,
-                config=vars(args),
-                name=run_name,
-                # off: wandb's gym integration patches RecordVideo.close to read
-                # `self.enabled`, which gymnasium 1.x lacks, crashing on env close
-                monitor_gym=False,
-                save_code=True,
-            )
-            if args.capture_video:
-                # sync_tensorboard owns the wandb step, so give videos an explicit
-                # x-axis via a custom step metric (see utils.log_new_videos)
-                wandb.define_metric("media/video_step")
-                wandb.define_metric("media/video", step_metric="media/video_step")
-        writer = SummaryWriter(f"runs/{run_name}")
-        writer.add_text(
-            "hyperparameters",
-            "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-        )
-
-    # TRY NOT TO MODIFY: seeding
-    utils.set_seed(args.seed, args.torch_deterministic)
-    
-    # load stages with environment arguments from config.yml
-    config = load_config(args.config) if args.config else None
-
-    first_env_args = None
-    if config:
-        first_env_args = config.stages[0].environment.model_dump()
-
-    # env setup
-    # built before utils.get_device() touches CUDA: forking a process with an
-    # already-initialized CUDA context can deadlock a worker later
-    # every rank has an idx==0 env, so video capture is also gated to rank 0
-    envs = gym.vector.AsyncVectorEnv(
-        [
-            make_env(
-                args.env_id, i, args.capture_video and is_main, run_name, args.gamma,
-                flatten=args.agent_type == "mlp",
-                environment_args=first_env_args
-            )
-            for i in range(local_num_envs)
-        ]
-    )
-    assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-
-    if is_distributed:
-        # Manual-all_reduce DDP (see deps/ddp_transformer.md) is NCCL/CUDA-only by
-        # design: fail fast rather than silently training unsynced ranks on CPU.
-        if not torch.cuda.is_available():
-            raise RuntimeError("Distributed launch (WORLD_SIZE>1) requires CUDA; run without torchrun instead.")
-        torch.cuda.set_device(local_rank)  # bind before init so NCCL maps ranks to their GPUs
-        dist.init_process_group("nccl")
-        device = torch.device(f"cuda:{local_rank}")
-    else:
-        device, _ = utils.get_device(args.cuda)
-
-    agent = Agent(
+def run_stage(
+        stage,
+        stage_id: int,
         envs,
-        args.rpo_alpha,
-        agent_type=args.agent_type,
-        d_model=args.d_model,
-        n_layers=args.n_layers,
-        n_heads=args.n_heads,
-        ff_dim=args.ff_dim,
-        dropout=args.dropout,
-        critic_pooling=args.critic_pooling,
-    ).to(device)
-    # AdamW, after cleanrl ppo_trxl.py; decay only matrix weights; standard transformer regularizer.
-    no_decay = {"actor_logstd", "critic.pool_query"}
-    decay_params = [p for n, p in agent.named_parameters() if p.ndim >= 2 and n not in no_decay]
-    other_params = [p for n, p in agent.named_parameters() if p.ndim < 2 or n in no_decay]
-    optimizer = optim.AdamW(  # pyright: ignore[reportPrivateImportUsage]
-        [
-            {"params": decay_params, "weight_decay": args.weight_decay},
-            {"params": other_params, "weight_decay": 0.0},
-        ],
-        lr=args.learning_rate,
-        eps=1e-5,
-    )
-    # cosine-with-warmup instead of CleanRL's linear anneal (see CosineWarmupScheduler.py); standard for transformers too.
+        agent,
+        optimizer,
+        device,
+        args,
+        writer,
+        is_main,
+        is_distributed,
+        local_rank,
+        local_num_envs,
+        local_batch_size,
+        local_minibatch_size,
+        global_step: int,
+        start_time: float,) -> int:
+    """Runs training loop of one stage and returns updated global_step"""
+    args.num_steps = stage.steps
+    args.num_iterations = args.total_timesteps // args.batch_size
+
+
     scheduler = None
     if args.anneal_lr:
         total_optimizer_steps = args.num_iterations * args.update_epochs * args.num_minibatches
@@ -296,12 +208,6 @@ if __name__ == "__main__":
             cycle_decay=args.cycle_decay,
             min_lr_ratio=args.min_lr_ratio,
         )
-
-    if is_distributed:
-        # de-correlate per-rank sampling (action noise, RPO perturbation, minibatch
-        # shuffles) now that the identically-seeded model init above is done
-        torch.manual_seed(args.seed + local_rank)
-        np.random.seed(args.seed + local_rank)
 
     # ALGO Logic: Storage setup
     obs = torch.zeros((args.num_steps, local_num_envs) + envs.single_observation_space.shape).to(device)  # pyright: ignore[reportOperatorIssue]
@@ -316,11 +222,6 @@ if __name__ == "__main__":
     videos_seen: set[str] = set()
     videos_sizes: dict[str, int] = {}
 
-    # TRY NOT TO MODIFY: start the game
-    global_step = 0
-    start_time = time.time()
-    # offset the env seed per rank so ranks collect disjoint rollouts (the vector
-    # env seeds sub-env i with env_seed + i, so ranks get disjoint ranges)
     env_seed = args.seed + local_rank * local_num_envs
     next_obs, _ = envs.reset(seed=env_seed)
     next_obs = torch.Tensor(next_obs).to(device)
@@ -467,45 +368,201 @@ if __name__ == "__main__":
             print("SPS:", int(global_step / (time.time() - start_time)))
             writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
+
         if is_main and args.track and args.capture_video:
             utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
-    if args.save_model and writer is not None:
-        model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+    if args.save_model and is_main:
+        model_path = f"runs/{args.run_name}/{args.exp_name}_stage{stage_id}_{stage.name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
-        print(f"model saved to {model_path}")
-
-        episodic_returns = utils.evaluate(
-            model_path,
-            make_env,
-            args.env_id,
-            eval_episodes=10,
-            run_name=f"{run_name}-eval",
-            Model=Agent,
-            agent_type=args.agent_type,
-            device=device,
-            gamma=args.gamma,
-            rpo_alpha=args.rpo_alpha,
-            d_model=args.d_model,
-            n_layers=args.n_layers,
-            n_heads=args.n_heads,
-            ff_dim=args.ff_dim,
-            dropout=args.dropout,
-            critic_pooling=args.critic_pooling,
-        )
-        for idx, episodic_return in enumerate(episodic_returns):
-            writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
-    envs.close()
+        print(f"[stage {stage_id}] model saved to {model_path}")
 
     if is_main and args.track and args.capture_video:
-        # two polls: catches the last videe once its size stabilizes (upload to wandb)
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
-    if writer is not None:
-        writer.close()
+    return global_step
 
+
+
+
+if __name__ == "__main__":
+    args = tyro.cli(Args)
+    # single-node torchrun; LOCAL_RANK doubles as global rank. CUDA init is
+    # deferred to device selection below, after AsyncVectorEnv forks workers.
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_distributed = world_size > 1
+    is_main = local_rank == 0
+
+    # num_envs is global, split across ranks; derived hyperparameters stay
+    # independent of world_size so step counts match the single-process run.
+    assert args.num_envs % world_size == 0, "num_envs must be divisible by world_size"
+    local_num_envs = args.num_envs // world_size
+    local_batch_size = local_num_envs * args.num_steps
+    assert local_batch_size % args.num_minibatches == 0, "local batch size must be divisible by num_minibatches"
+    local_minibatch_size = local_batch_size // args.num_minibatches
+    args.batch_size = int(args.num_envs * args.num_steps)
+    args.minibatch_size = int(args.batch_size // args.num_minibatches)
+    args.num_iterations = args.total_timesteps // args.batch_size
+    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
+    writer = None
+    if is_main:
+        if args.track:
+            # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
+            # reporting only; unrelated to our logging)
+            os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
+            import wandb
+
+            wandb.init(
+                project=args.wandb_project_name,
+                entity=args.wandb_entity,
+                sync_tensorboard=True,
+                config=vars(args),
+                name=run_name,
+                # off: wandb's gym integration patches RecordVideo.close to read
+                # `self.enabled`, which gymnasium 1.x lacks, crashing on env close
+                monitor_gym=False,
+                save_code=True,
+            )
+            if args.capture_video:
+                # sync_tensorboard owns the wandb step, so give videos an explicit
+                # x-axis via a custom step metric (see utils.log_new_videos)
+                wandb.define_metric("media/video_step")
+                wandb.define_metric("media/video", step_metric="media/video_step")
+        writer = SummaryWriter(f"runs/{run_name}")
+        writer.add_text(
+            "hyperparameters",
+            "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+        )
+
+    # TRY NOT TO MODIFY: seeding
+    utils.set_seed(args.seed, args.torch_deterministic)
+    
+    # load stages with environment arguments from config.yml
+    config = load_config(args.config)
+
+
+    env_args = config.stages[0].environment.model_dump()
+
+    # TODO: define model either load_from file or with random weights
+    # TOOD: initialize Environment
+
+    stage_ids = config.get_stages_from_name(args.stages)
+
+    agent = None
+    optimizer = None
+    device = None
+    global_step = 0
+    start_time = time.time()
+
+    for stage_id in stage_ids:
+        stage = config.stages[stage_id]
+        env_args = stage.environment.model_dump()
+        args.num_steps = stage.steps
+
+        run_name = f"{args.env_id}__{args.exp_name}__{stage.name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        print(f"running stage: {stage_id} : {stage.name}")
+
+        assert args.num_envs % world_size == 0, "num_envs must be divisible by world_size"
+        local_num_envs = args.num_envs // world_size
+        local_batch_size = local_num_envs * args.num_steps
+        assert local_batch_size % args.num_minibatches == 0, "local batch size must be divisible by num_minibatches"
+        local_minibatch_size = local_batch_size // args.num_minibatches
+        args.batch_size = int(args.num_envs * args.num_steps)
+        args.minibatch_size = int(args.batch_size // args.num_minibatches)
+        args.num_iterations = args.total_timesteps // args.batch_size
+
+        writer = None
+        if is_main:
+            if args.track:
+                os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
+                import wandb
+                wandb.init(
+                    project=args.wandb_project_name, entity=args.wandb_entity,
+                    sync_tensorboard=True, config=vars(args), name=run_name,
+                    monitor_gym=False, save_code=True,
+                )
+                if args.capture_video:
+                    wandb.define_metric("media/video_step")
+                    wandb.define_metric("media/video", step_metric="media/video_step")
+            writer = SummaryWriter(f"runs/{run_name}")
+            writer.add_text(
+                "hyperparameters",
+                "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+            )
+
+        utils.set_seed(args.seed, args.torch_deterministic)
+
+        envs = gym.vector.AsyncVectorEnv(
+            [
+                make_env(args.env_id, i, args.capture_video and is_main, run_name, args.gamma,
+                          flatten=args.agent_type == "mlp", environment_args=env_args)
+                for i in range(local_num_envs)
+            ]
+        )
+        assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
+
+        if agent is None:
+            if is_distributed:
+                if not torch.cuda.is_available():
+                    raise RuntimeError("Distributed launch (WORLD_SIZE>1) requires CUDA; run without torchrun instead.")
+                torch.cuda.set_device(local_rank)
+                dist.init_process_group("nccl")
+                device = torch.device(f"cuda:{local_rank}")
+            else:
+                device, _ = utils.get_device(args.cuda)
+
+            agent = Agent(
+                envs, args.rpo_alpha, agent_type=args.agent_type, d_model=args.d_model,
+                n_layers=args.n_layers, n_heads=args.n_heads, ff_dim=args.ff_dim,
+                dropout=args.dropout, critic_pooling=args.critic_pooling,
+            ).to(device)
+
+            no_decay = {"actor_logstd", "critic.pool_query"}
+            decay_params = [p for n, p in agent.named_parameters() if p.ndim >= 2 and n not in no_decay]
+            other_params = [p for n, p in agent.named_parameters() if p.ndim < 2 or n in no_decay]
+            optimizer = optim.AdamW(
+                [
+                    {"params": decay_params, "weight_decay": args.weight_decay},
+                    {"params": other_params, "weight_decay": 0.0},
+                ],
+                lr=args.learning_rate, eps=1e-5,
+            )
+
+            if is_distributed:
+                torch.manual_seed(args.seed + local_rank)
+                np.random.seed(args.seed + local_rank)
+
+        global_step = run_stage(
+            stage, stage_id, envs, agent, optimizer, device, args, writer,
+            is_main, is_distributed, local_rank, local_num_envs,
+            local_batch_size, local_minibatch_size, global_step, start_time,
+        )
+
+        envs.close()
+        if writer is not None:
+            writer.close()
+        if is_main and args.track:
+            wandb.finish()
+
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if args.save_model and is_main:
+            model_path = f"runs/{run_name}/{args.exp_name}/{stage.name}.cleanrl_model"
+            episodic_returns = utils.evaluate(
+                model_path, make_env, args.env_id, eval_episodes=10, run_name=f"{run_name}-eval",
+                Model=Agent, agent_type=args.agent_type, device=device, gamma=args.gamma,
+                rpo_alpha=args.rpo_alpha, d_model=args.d_model, n_layers=args.n_layers,
+                n_heads=args.n_heads, ff_dim=args.ff_dim, dropout=args.dropout,
+                critic_pooling=args.critic_pooling,
+            )
+    
     if is_distributed:
-        dist.barrier()  # let rank 0 finish saving/evaluating before tearing down
+        dist.barrier()
         dist.destroy_process_group()
+
