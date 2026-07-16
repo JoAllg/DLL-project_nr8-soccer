@@ -155,7 +155,7 @@ class SSLDynamicRobots(SSLBaseEnv):
             return 0, True
         
         ball = self.frame.ball
-        robot = self.frame.robots_blue[0]
+        robots = self.frame.robots_blue
         goal_x = self.field.length / 2
 
         # End episode if robot goes out of bounds
@@ -164,14 +164,27 @@ class SSLDynamicRobots(SSLBaseEnv):
         #     return -1, True
 
         # Reward 1: robot proximity to ball (normalized)
+        # TODO: -> closest robot to ball proximity to avoid all robots just drive to ball
         if self.last_frame is None:
             reward_proximity = 0
         else:
-            last_robot = self.last_frame.robots_blue[0]
-            last_ball = self.last_frame.ball
-            current_dist = np.linalg.norm([robot.x - ball.x, robot.y - ball.y])
-            last_dist = np.linalg.norm([last_robot.x - last_ball.x, last_robot.y - last_ball.y])
-            reward_proximity = (last_dist - current_dist) 
+            last_robots = self.last_frame.robots_blue
+            current_dist = [] # list of distances per robot id
+            last_dist = []
+            closest_id = None
+            last_closest_dist = float('inf')
+
+            for i, (current, last) in enumerate(zip(robots.values(), last_robots.values())):
+                current_dist.append(np.linalg.norm([current.x - ball.x, current.y - ball.y]))
+                last_dist.append(np.linalg.norm([last.x - ball.x, last.y - ball.y]))
+
+                # which robot was the closest in the last frame
+                if last_dist[i] < last_closest_dist:
+                    closest_id = i
+                    last_closest_dist = last_dist[i]
+
+            # reward if closest robot got closer
+            reward_proximity = last_dist[closest_id] - current_dist[closest_id] 
 
         # Reward 2: ball progress toward goal (delta distance, normalized)
         if self.last_frame is None:
