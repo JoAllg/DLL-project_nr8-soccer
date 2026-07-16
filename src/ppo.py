@@ -148,6 +148,8 @@ class Args:
     stages: Optional[list[str]] = None
     """which stage of the config file should be executed. None: execute all stages in
     Order"""
+    load_model: Optional[str] = None
+    """Path to a .cleanrl_model checkpoint to load before the first training stage."""
 
 
 def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
@@ -194,7 +196,10 @@ def run_stage(
         start_time: float,) -> int:
     """Runs training loop of one stage and returns updated global_step"""
     args.num_steps = stage.steps
-    args.num_iterations = args.total_timesteps // args.batch_size
+    #args.num_iterations = args.total_timesteps // args.batch_size
+
+    #set new environment
+    agent.set_env(envs)
 
 
     scheduler = None
@@ -374,7 +379,7 @@ def run_stage(
             utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
     if args.save_model and is_main:
-        model_path = f"runs/{args.run_name}/{args.exp_name}_stage{stage_id}_{stage.name}.cleanrl_model"
+        model_path = f"runs/{run_name}/{args.exp_name}_stage{stage_id}_{stage.name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"[stage {stage_id}] model saved to {model_path}")
 
@@ -404,13 +409,19 @@ if __name__ == "__main__":
     local_minibatch_size = local_batch_size // args.num_minibatches
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
-    args.num_iterations = args.total_timesteps // args.batch_size
+
+    #args.num_iterations = args.total_timesteps // args.batch_size
+
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
 
 
     # load stages with environment arguments from config.yml
     config = load_config(args.config)
+
+    # calculate total_timesteps
+    args.total_timesteps = sum(args.num_iterations * args.num_envs * s.steps for
+                               s in config.stages)
 
     if not args.stages:
         # add all stages from config so they are shown in hyperparameters in wandb
@@ -479,7 +490,8 @@ if __name__ == "__main__":
         local_minibatch_size = local_batch_size // args.num_minibatches
         args.batch_size = int(args.num_envs * args.num_steps)
         args.minibatch_size = int(args.batch_size // args.num_minibatches)
-        args.num_iterations = args.total_timesteps // args.batch_size
+
+        #args.num_iterations = args.total_timesteps // args.batch_size
 
         writer = None
         if is_main:
@@ -526,6 +538,11 @@ if __name__ == "__main__":
                 n_layers=args.n_layers, n_heads=args.n_heads, ff_dim=args.ff_dim,
                 dropout=args.dropout, critic_pooling=args.critic_pooling,
             ).to(device)
+
+            if args.load_model:
+                print(f"loading model weights from: {args.load_model}")
+                agent.load_state_dict(torch.load(args.load_model,
+                                                 map_location=device))
 
             no_decay = {"actor_logstd", "critic.pool_query"}
             decay_params = [p for n, p in agent.named_parameters() if p.ndim >= 2 and n not in no_decay]
