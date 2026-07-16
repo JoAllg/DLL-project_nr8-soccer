@@ -36,6 +36,7 @@ import torch.nn as nn
 import torch.optim as optim
 import tyro
 from torch.utils.tensorboard.writer import SummaryWriter
+import wandb
 
 import utils
 from agent import Agent
@@ -227,6 +228,8 @@ def run_stage(
     videos_seen: set[str] = set()
     videos_sizes: dict[str, int] = {}
 
+
+
     env_seed = args.seed + local_rank * local_num_envs
     next_obs, _ = envs.reset(seed=env_seed)
     next_obs = torch.Tensor(next_obs).to(device)
@@ -360,7 +363,7 @@ def run_stage(
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
-        if writer is not None:
+        if is_main and writer is not None:
             writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
             writer.add_scalar("charts/entropy_coefficient", ent_coef, global_step)
             writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
@@ -371,8 +374,9 @@ def run_stage(
             writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
             writer.add_scalar("losses/explained_variance", explained_var, global_step)
             print("SPS:", int(global_step / (time.time() - start_time)))
+            print("global_step:", global_step)
+            print("stage_id:", stage_id)
             writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-            writer.add_scalar("charts/stage_id", stage_id, global_step)
 
 
         if is_main and args.track and args.capture_video:
@@ -434,7 +438,6 @@ if __name__ == "__main__":
             # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
             # reporting only; unrelated to our logging)
             os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
-            import wandb
 
             wandb.init(
                 project=args.wandb_project_name,
@@ -460,13 +463,6 @@ if __name__ == "__main__":
 
     # TRY NOT TO MODIFY: seeding
     utils.set_seed(args.seed, args.torch_deterministic)
-    
-
-
-    env_args = config.stages[0].environment.model_dump()
-
-    # TODO: define model either load_from file or with random weights
-    # TOOD: initialize Environment
 
     stage_ids = config.get_stages_from_name(args.stages)
 
@@ -493,25 +489,6 @@ if __name__ == "__main__":
         args.minibatch_size = int(args.batch_size // args.num_minibatches)
 
         #args.num_iterations = args.total_timesteps // args.batch_size
-
-        writer = None
-        if is_main:
-            if args.track:
-                os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
-                import wandb
-                wandb.init(
-                    project=args.wandb_project_name, entity=args.wandb_entity,
-                    sync_tensorboard=True, config=vars(args), name=run_name,
-                    monitor_gym=False, save_code=True,
-                )
-                if args.capture_video:
-                    wandb.define_metric("media/video_step")
-                    wandb.define_metric("media/video", step_metric="media/video_step")
-            writer = SummaryWriter(f"runs/{run_name}")
-            writer.add_text(
-                "hyperparameters",
-                "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-            )
 
         utils.set_seed(args.seed, args.torch_deterministic)
 
@@ -561,11 +538,17 @@ if __name__ == "__main__":
                 torch.manual_seed(args.seed + local_rank)
                 np.random.seed(args.seed + local_rank)
 
+        if is_main and writer:
+            writer.add_scalar("charts/stage_id", stage_id, global_step)
+
         global_step = run_stage(
             stage, stage_id, envs, agent, optimizer, device, args, writer,
             is_main, is_distributed, local_rank, local_num_envs,
             local_batch_size, local_minibatch_size, global_step, start_time,
         )
+
+        if is_main and writer:
+            writer.add_scalar("charts/stage_id", stage_id, global_step)
 
         envs.close()
 
@@ -575,8 +558,8 @@ if __name__ == "__main__":
         # if torch.cuda.is_available():
         #     torch.cuda.empty_cache()
 
-        if writer is not None:
-            writer.close()
+    if writer is not None:
+        writer.close()
 
     
     if is_distributed:
