@@ -379,6 +379,7 @@ def run_stage(
             utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
     if args.save_model and is_main:
+        print(f"saving_model...")
         model_path = f"runs/{run_name}/{args.exp_name}_stage{stage_id}_{stage.name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"[stage {stage_id}] model saved to {model_path}")
@@ -519,7 +520,8 @@ if __name__ == "__main__":
                 make_env(args.env_id, i, args.capture_video and is_main, run_name, args.gamma,
                           flatten=args.agent_type == "mlp", environment_args=env_args)
                 for i in range(local_num_envs)
-            ]
+            ],
+            context="spawn" # spawn new process each time otherwise deadlock at 2nd stage
         )
         assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
