@@ -64,7 +64,7 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    save_model: bool = False
+    save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
 
     # Algorithm specific arguments
@@ -367,6 +367,7 @@ def run_stage(
             writer.add_scalar("losses/explained_variance", explained_var, global_step)
             print("SPS:", int(global_step / (time.time() - start_time)))
             writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            writer.add_scalar("charts/stage_id", stage_id, global_step)
 
 
         if is_main and args.track and args.capture_video:
@@ -378,7 +379,6 @@ def run_stage(
         print(f"[stage {stage_id}] model saved to {model_path}")
 
     if is_main and args.track and args.capture_video:
-        utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
     return global_step
@@ -407,6 +407,15 @@ if __name__ == "__main__":
     args.num_iterations = args.total_timesteps // args.batch_size
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
+
+
+    # load stages with environment arguments from config.yml
+    config = load_config(args.config)
+
+    if not args.stages:
+        # add all stages from config so they are shown in hyperparameters in wandb
+        args.stages = [stage.name for stage in config.stages]
+
     writer = None
     if is_main:
         if args.track:
@@ -440,8 +449,6 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: seeding
     utils.set_seed(args.seed, args.torch_deterministic)
     
-    # load stages with environment arguments from config.yml
-    config = load_config(args.config)
 
 
     env_args = config.stages[0].environment.model_dump()
@@ -450,6 +457,7 @@ if __name__ == "__main__":
     # TOOD: initialize Environment
 
     stage_ids = config.get_stages_from_name(args.stages)
+
 
     agent = None
     optimizer = None
@@ -462,7 +470,6 @@ if __name__ == "__main__":
         env_args = stage.environment.model_dump()
         args.num_steps = stage.steps
 
-        run_name = f"{args.env_id}__{args.exp_name}__{stage.name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         print(f"running stage: {stage_id} : {stage.name}")
 
         assert args.num_envs % world_size == 0, "num_envs must be divisible by world_size"
@@ -542,25 +549,16 @@ if __name__ == "__main__":
         )
 
         envs.close()
+
+        # import gc
+        # gc.collect()
+
+        # if torch.cuda.is_available():
+        #     torch.cuda.empty_cache()
+
         if writer is not None:
             writer.close()
-        if is_main and args.track:
-            wandb.finish()
 
-        import gc
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        if args.save_model and is_main:
-            model_path = f"runs/{run_name}/{args.exp_name}/{stage.name}.cleanrl_model"
-            episodic_returns = utils.evaluate(
-                model_path, make_env, args.env_id, eval_episodes=10, run_name=f"{run_name}-eval",
-                Model=Agent, agent_type=args.agent_type, device=device, gamma=args.gamma,
-                rpo_alpha=args.rpo_alpha, d_model=args.d_model, n_layers=args.n_layers,
-                n_heads=args.n_heads, ff_dim=args.ff_dim, dropout=args.dropout,
-                critic_pooling=args.critic_pooling,
-            )
     
     if is_distributed:
         dist.barrier()
