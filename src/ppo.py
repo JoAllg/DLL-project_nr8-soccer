@@ -196,12 +196,15 @@ def run_stage(
         global_step: int,
         start_time: float,) -> int:
     """Runs training loop of one stage and returns updated global_step"""
-    args.num_steps = stage.steps
-    #args.num_iterations = args.total_timesteps // args.batch_size
+    if stage.steps:
+        args.num_steps = stage.steps
+
+    args.num_iterations = stage.iterations
+
+    print(f"steps: {args.num_steps} , iterations: {args.num_iterations} ")
 
     #set new environment
     agent.set_env(envs)
-
 
     scheduler = None
     if args.anneal_lr:
@@ -415,18 +418,17 @@ if __name__ == "__main__":
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
 
-    #args.num_iterations = args.total_timesteps // args.batch_size
-
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
-
 
     # load stages with environment arguments from config.yml
     config = load_config(args.config)
 
+
     # calculate total_timesteps
-    args.total_timesteps = sum(args.num_iterations * args.num_envs * s.steps for
-                               s in config.stages)
+    steps = sum(s.steps if s.steps is not None else args.num_steps for s in config.stages)
+    n_iterations = sum(s.iterations for s in config.stages)
+    args.total_timesteps = n_iterations * args.num_envs * steps
 
     if not args.stages:
         # add all stages from config so they are shown in hyperparameters in wandb
@@ -476,7 +478,8 @@ if __name__ == "__main__":
     for stage_id in stage_ids:
         stage = config.stages[stage_id]
         env_args = stage.environment.model_dump()
-        args.num_steps = stage.steps
+        if stage.steps:
+            args.num_steps = stage.steps
 
         print(f"running stage: {stage_id} : {stage.name}")
 
@@ -552,15 +555,8 @@ if __name__ == "__main__":
 
         envs.close()
 
-        # import gc
-        # gc.collect()
-
-        # if torch.cuda.is_available():
-        #     torch.cuda.empty_cache()
-
     if writer is not None:
         writer.close()
-
     
     if is_distributed:
         dist.barrier()

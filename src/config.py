@@ -15,12 +15,13 @@ class Stage(BaseModel):
     # required fields — must be present
     # ---------------------------------
     name: str
-    steps: int
     environment: Environment = Environment()
+    iterations: int
 
 
     # optional fields — can be omitted
     # ---------------------------------
+    steps: Optional[int] = Field(default=None, multiple_of=1024)
     n_robots_yellow: Optional[int] = None
     save_model: bool = True
 
