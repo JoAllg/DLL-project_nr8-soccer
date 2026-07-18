@@ -152,6 +152,9 @@ class Args:
     Order"""
     load_model: Optional[str] = None
     """Path to a .cleanrl_model checkpoint to load before the first training stage."""
+    save_steps: int = 0
+    """How often the model should be saved in between (0 -> only save at the end
+                                                       of a stage)"""
 
 
 def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
@@ -209,9 +212,9 @@ def run_stage(
 
     def save_checkpoint(sig=None, frame=None):
         print(f"saving_model checkpoint...")
-        model_path = f"runs/{run_name}/{args.exp_name}_stage{stage_id}_{stage.name}_steps_{args.num_steps}.cleanrl_model"
+        model_path = f"runs/{run_name}/{args.exp_name}_stage{stage_id}_{stage.name}_steps_{global_step}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
-        print(f"[stage {stage_id} at steps {args.num_steps}] model saved to {model_path}")
+        print(f"[stage {stage_id} at steps {global_step}] model saved to {model_path}")
 
     #install signal handler
     signal.signal(signal.SIGTERM, save_checkpoint)
@@ -250,6 +253,9 @@ def run_stage(
     next_obs = torch.Tensor(next_obs).to(device)
     next_done = torch.zeros(local_num_envs).to(device)
 
+    last_save_step = 0
+
+
     for iteration in range(1, args.num_iterations + 1):
         # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
         # a decaying entropy bonus buys exploration early (finding ball/goal at all)
@@ -259,6 +265,8 @@ def run_stage(
 
         for step in range(0, args.num_steps):
             global_step += args.num_envs
+
+
             obs[step] = next_obs
             dones[step] = next_done
 
@@ -282,6 +290,11 @@ def run_stage(
                         print(f"global_step={global_step}, episodic_return={r:.2f}")
                         writer.add_scalar("charts/episodic_return", r, global_step)
                         writer.add_scalar("charts/episodic_length", infos["episode"]["l"][i], global_step)
+
+            # save checkpoint
+            if is_main and args.save_steps > 0 and global_step - last_save_step >= args.save_steps:
+                save_checkpoint()
+                last_save_step = global_step
 
         # bootstrap value if not done
         with torch.no_grad():
