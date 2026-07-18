@@ -1,6 +1,8 @@
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
-from typing import Optional
+from typing import Optional, Literal
+from dataclasses import asdict, is_dataclass
+import os
 
 class Environment(BaseModel):
     # optional fields — can be omitted
@@ -26,7 +28,7 @@ class Stage(BaseModel):
 
     # optional fields — can be omitted
     # ---------------------------------
-    steps: Optional[int] = Field(default=None, multiple_of=1024)
+    steps: int = Field(default=4096, multiple_of=1024)
     n_robots_yellow: Optional[int] = None
     save_model: bool = True
 
@@ -47,9 +49,115 @@ class Config(BaseModel):
 
     _name_to_index: dict[str, int] = PrivateAttr(default_factory=dict)
 
+    # command line arguments get overridden
+    exp_name: str = os.path.basename(__file__)[: -len(".py")]
+    # the name of this experiment"""
+    seed: int = 1
+    # seed of the experiment"""
+    torch_deterministic: bool = False
+    # if toggled, `torch.backends.cudnn.deterministic=False`"""
+    cuda: bool = True
+    # if toggled, cuda will be enabled by default"""
+    track: bool = False
+    # if toggled, this experiment will be tracked with Weights and Biases"""
+    wandb_project_name: str = "cleanRL"
+    # the wandb's project name"""
+    wandb_entity: Optional[str] = None
+    # the entity (team) of wandb's project"""
+    capture_video: bool = False
+    # whether to capture videos of the agent performances (check out `videos` folder)"""
+    save_model: bool = True
+    # whether to save model into the `runs/{run_name}` folder"""
+
+    # Algorithm specific arguments
+    env_id: str = "SSLDynamicRobots-v0"
+    # the id of the environment"""
+    total_timesteps: int = 20000000
+    # total timesteps of the experiments"""
+    num_envs: int = 16
+    # the number of parallel game environments"""
+    num_steps: int = 2048*2
+    # the number of steps to run in each environment per policy rollout"""
+    num_minibatches: int = 32
+    # the number of mini-batches"""
+    update_epochs: int = 3
+    # the K epochs to update the policy"""
+    learning_rate: float = 3e-4
+    # the learning rate of the optimizer"""
+    anneal_lr: bool = True
+    # Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
+    warmup_ratio: float = 0.01
+    # fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
+    min_lr_ratio: float = 1e-8
+    # the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
+    num_cycles: int = 1
+    # number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
+    cycle_decay: float = 0.5
+    # peak-LR multiplier applied at each LR restart (0.5 halves the max LR every cycle); 1.0 = no decay"""
+    weight_decay: float = 0.01
+    # AdamW weight decay (applied to matrix weights only, see optimizer setup)"""
+    gamma: float = 0.99
+    # the discount factor gamma"""
+    gae_lambda: float = 0.95
+    # the lambda for the general advantage estimation"""
+    norm_adv: bool = True
+    # Toggles advantages normalization"""
+    clip_coef: float = 0.1
+    # the surrogate clipping coefficient"""
+    clip_vloss: bool = True
+    # Toggles whether or not to use a clipped loss for the value function, as per the paper."""
+    ent_coef: float = 0.01
+    # initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)"""
+    # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
+    # a decaying entropy bonus buys exploration early (finding ball/goal at all)
+    # without keeping the policy noisy late in training
+    final_ent_coef: float = 0.0
+    # final entropy coefficient after linear annealing from ent_coef over total_timesteps"""
+    vf_coef: float = 0.5
+    # coefficient of the value function"""
+    max_grad_norm: float = 0.25
+    # the maximum norm for the gradient clipping"""
+    target_kl: Optional[float] = None
+    # the target KL divergence threshold"""
+    rpo_alpha: float = 0.5 # Best values between 0.5 to 0.1
+    # the alpha parameter for RPO"""
+
+    # Agent architecture arguments
+    agent_type: Literal["mlp", "transformer"] = "transformer"
+    # the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer"""
+    d_model: int = 256
+    # (transformer) the model/embedding dimension"""
+    n_layers: int = 4
+    # (transformer) the number of encoder layers"""
+    n_heads: int = 8
+    # (transformer) the number of attention heads (must divide d_model)"""
+    ff_dim: int = 512
+    # (transformer) the feedforward dimension inside encoder layers"""
+    dropout: float = 0.0 # Should not be used (RPO/PPO regularize with action-mean perturbation and sampling noise)
+    # (transformer) dropout inside encoder layers"""
+    critic_pooling: Literal["mean", "max", "attention"] = "attention"
+    # (transformer) how the critic pools entity tokens into a scalar value"""
+
+    # to be filled in runtime
+    batch_size: int = 0
+    # the batch size (computed in runtime)"""
+    minibatch_size: int = 0
+    # the mini-batch size (computed in runtime)"""
+    num_iterations: int = 0
+    # the number of iterations (computed in runtime)"""
+    config: str = "config.yml"
+    # which stage of the config file should be executed. None: execute all stages in Order 
+    load_model: Optional[str] = None
+    # Path to a .cleanrl_model checkpoint to load before the first training stage."""
+    save_steps: int = 0
+    # How often the model should be saved in between (0 -> only save at the end of a stage)"""
+    stage_selection: Optional[list[str]] = Field(default=None)
+
     # this method run after the complete model is initialized
     def model_post_init(self, __context) -> None:
         self._name_to_index = {stage.name: i for i, stage in enumerate(self.stages)}
+
+        #TODO: override stage steps and stage.iterations
 
     def get_stages_from_name(self, names: Optional[list[str]]) -> list[int]:
         if not names:
@@ -59,7 +167,48 @@ class Config(BaseModel):
             raise ValueError(f" stage names not found in config: {missing}")
         return [self._name_to_index[name] for name in names]
 
+def flatten_dict(d, parent_key="", sep="-"):
+    """Recursively flatten nested dicts/lists into dotted-key : value pairs."""
+    items = {}
+    if isinstance(d, dict):
+        for k, v in d.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else str(k)
+            items.update(flatten_dict(v, new_key, sep=sep))
+    elif isinstance(d, list):
+        for i, v in enumerate(d):
+            new_key = f"{parent_key}{sep}{i}" if parent_key else str(i)
+            items.update(flatten_dict(v, new_key, sep=sep))
+    else:
+        items[parent_key] = d
+    return items
 
+
+
+def override_with_args(args, config: Config) -> Config:
+    """
+    Override fields in a pydantic `config` with values from `args`
+    (a tyro-parsed dataclass, argparse.Namespace, or dict).
+    Only overrides keys that already exist as fields on `config`.
+    Returns a new, validated config instance.
+    """
+    if is_dataclass(args):
+        args_dict = asdict(args)
+    elif isinstance(args, dict):
+        args_dict = args
+    elif hasattr(args, "__dict__"):  # e.g. argparse.Namespace
+        args_dict = vars(args)
+    else:
+        raise TypeError(f"Unsupported args type: {type(args)}")
+
+    valid_fields = config.model_fields.keys()  # pydantic v2; use config.__fields__ for v1
+    updates = {k: v for k, v in args_dict.items() if k in valid_fields}
+
+    unknown = set(args_dict.keys()) - valid_fields
+    if unknown:
+        print(f"Warning: ignoring args not in config: {unknown}")
+
+    return config.model_copy(update=updates)  # pydantic v2
+    # For pydantic v1: return config.copy(update=updates)
 
 
 def load_config(path: str) -> Config:
