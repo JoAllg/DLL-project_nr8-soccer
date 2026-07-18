@@ -78,6 +78,7 @@ class SSLDynamicRobots(SSLBaseEnv):
             shape=(4 + n_robots_blue * self.TEAMMATE_DIM + n_robots_yellow * self.OPPONENT_DIM,),
         )
         self.episode_steps = 0
+        self.last_touch_x = None
 
         self.field_scale = self.field.length / self.FIELD_REF_LENGTH
         # override SSLBaseEnv's motor-RPM max_v so command scaling and
@@ -176,6 +177,7 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     def _calculate_reward_and_done(self):
         self.episode_steps += 1
+        self._update_ball_touch()
         if self.episode_steps >= self.max_steps:
             self.episode_steps = 0
             return 0, True
@@ -189,6 +191,11 @@ class SSLDynamicRobots(SSLBaseEnv):
                      for name, weight in self.reward_weights.items())
         
         return reward, self._reward_goal() > 0 # goal ends the episode even when its reward weight is not configured
+   
+    def _update_ball_touch(self):
+        """Track the ball's x-position at the last teammate touch (infrared/dribbler contact)."""
+        if any(robot.infrared for robot in self.frame.robots_blue.values()):
+            self.last_touch_x = self.frame.ball.x
 
     ### REWARD DEFINITIONS
     ### should be in [-1, 1]!
@@ -250,8 +257,23 @@ class SSLDynamicRobots(SSLBaseEnv):
         in_goal = ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2
         return 1.0 if in_goal else 0.0
 
+    def _reward_goal_close(self):
+        """1.0 when the ball is in the goal AND was last touched inside the last third close to the goal.
+
+        Gives more focus to other rewards (game build-up) while the ball is farther away from the goal.
+        """
+        ball = self.frame.ball
+        goal_x = self.field.length / 2
+        in_goal = ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2
+        if not in_goal:
+            return 0.0
+        attacking_third_x = goal_x - self.field.length / 3
+        touched_in_front = self.last_touch_x is not None and self.last_touch_x > attacking_third_x
+        return 1.0 if touched_in_front else 0.0
+
     def _get_initial_positions_frame(self):
         self.episode_steps = 0
+        self.last_touch_x = None
         pos_frame = Frame()
 
         goal_buffer = 1.0 * self.field_scale

@@ -12,16 +12,26 @@ stages:
         proximity: 0.1
         progress: 0.8
         kick: 0.1
-        goal: 100
+        goal_close: 100 # goal or goal_close do not change anything when ball spawns close to goal
 
   - name: "2vs0"
     <<: *defaults
     environment:
       n_robots_blue: 2
       n_robots_yellow: 0
+      rewards:
+        proximity: 0.1
+        progress: 0.8
+        kick: 0.1
+        goal_close: 100 # TODO: reduce for teamwork
 
-  - name: "2vs2 static"
+  - name: "2vs2"
     <<: *defaults
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
+      rewards:
+        proximity: 0.1
+        progress: 0.8
+        kick: 0.1
+        goal_close: 100

@@ -222,3 +222,5 @@ runs
 hpc-scripts/.env.remote
 hpc-scripts/.env
 deps
+videos
+wandb

@@ -9,6 +9,8 @@
    3. Creating VSS environment with one Robot + Ball (init at random position), Rewards (Muskan)
    4. Add this environment to the PPO algorithm (Tobias)
    5. Dynamic Environment (Tobias)
+      1. dynamic Rewards (Joshua)
+      2. 
    6. (automatic) HPO
    7. Reward shaping
    8. Add Transformer Encorder (Joshua)
