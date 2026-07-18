@@ -235,8 +235,13 @@ class SSLDynamicRobots(SSLBaseEnv):
         return (last_dist - current_dist) / (self.kick_speed * self.time_step)
 
     def _reward_kick(self):
-        """Ball velocity toward the goal (x-axis), noramlized by kick_speed"""
-        return self.frame.ball.v_x / self.kick_speed
+        """Ball kick velocity toward the goal (x-axis),
+        normalized by kick_speed (to [0, 1], negative reward is handled by reward_progress).
+
+        Reward kicking over dribbling (reward_progress)
+        """
+        # only kick speed is counted, dribbling speed returns 0. Bounded by kick_speed.
+        return max(0.0, (self.frame.ball.v_x - self.max_v) / (self.kick_speed - self.max_v))
 
     def _reward_goal(self):
         """1.0 when the ball is in the goal, else 0.0."""
