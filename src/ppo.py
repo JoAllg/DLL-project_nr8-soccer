@@ -5,8 +5,7 @@ import warnings
 import signal
 from datetime import datetime
 
-from dataclasses import dataclass
-from typing import Literal, Optional, Annotated
+from typing import Optional, Annotated
 
 warnings.filterwarnings(
     "ignore",
@@ -28,7 +27,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
 import tyro
-from dataclasses import fields, is_dataclass, asdict, field, make_dataclass
+from dataclasses import asdict, field, make_dataclass
 from torch.utils.tensorboard.writer import SummaryWriter
 import wandb
 
