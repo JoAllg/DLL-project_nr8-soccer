@@ -481,8 +481,7 @@ if __name__ == "__main__":
             if config.capture_video:
                 # sync_tensorboard owns the wandb step, so give videos an explicit
                 # x-axis via a custom step metric (see utils.log_new_videos)
-                wandb.define_metric("media/video_step")
-                wandb.define_metric("media/video", step_metric="media/video_step")
+                wandb.define_metric("media/video", step_metric="global_step")
         writer = SummaryWriter(f"runs/{run_name}")
         config_model = config.model_dump()
         writer.add_text(
@@ -580,9 +579,6 @@ if __name__ == "__main__":
             if is_distributed:
                 torch.manual_seed(config.seed + local_rank)
                 np.random.seed(config.seed + local_rank)
-
-        if is_main and writer:
-            writer.add_scalar("charts/batch_size", config.batch_size, global_step)
 
         global_step = run_stage(
             stage, stage_id, envs, iterations, agent, optimizer, device, writer,
