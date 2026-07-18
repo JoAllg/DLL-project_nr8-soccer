@@ -197,6 +197,7 @@ def run_stage(
         stage,
         stage_id: int,
         envs,
+        iterations,
         agent,
         optimizer,
         device,
@@ -211,7 +212,7 @@ def run_stage(
         start_time: float,) -> int:
     """Runs training loop of one stage and returns updated global_step"""
 
-    print(f"steps: {stage.steps} , iterations: {stage.iterations} ")
+    print(f"steps: {stage.steps} , iterations: {iterations} ")
 
     #set new environment
     agent.set_env(envs)
@@ -229,7 +230,7 @@ def run_stage(
 
     scheduler = None
     if config.anneal_lr:
-        total_optimizer_steps = stage.iterations * config.update_epochs * config.num_minibatches
+        total_optimizer_steps = iterations * config.update_epochs * config.num_minibatches
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
             num_warmup_steps=int(config.warmup_ratio * total_optimizer_steps),
@@ -262,7 +263,7 @@ def run_stage(
     last_save_step = 0
 
 
-    for iteration in range(1, stage.iterations + 1):
+    for iteration in range(1, iterations + 1):
         # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
         # a decaying entropy bonus buys exploration early (finding ball/goal at all)
         # without keeping the policy noisy late in training
@@ -466,8 +467,7 @@ if __name__ == "__main__":
 
     # calculate total_timesteps
     steps = sum(s.steps if s.steps is not None else config.num_steps for s in config.stages)
-    n_iterations = sum(s.iterations for s in config.stages)
-    config.total_timesteps = n_iterations * config.num_envs * steps
+    config.total_timesteps = sum(stage.total_steps for stage in config.stages)
 
     writer = None
     if is_main:
@@ -517,6 +517,10 @@ if __name__ == "__main__":
     for stage_id in stage_ids:
         stage = config.stages[stage_id]
         env_args = stage.environment.model_dump()
+
+        # calculate iterations from totaL_steps per stage
+        # total_steps = iterations * num_envs * stage.steps
+        iterations = stage.total_steps // (config.num_envs * stage.steps) 
 
         print(f"running stage: {stage_id} : {stage.name}")
 
@@ -581,7 +585,7 @@ if __name__ == "__main__":
             writer.add_scalar("charts/stage_id", stage_id, global_step)
 
         global_step = run_stage(
-            stage, stage_id, envs, agent, optimizer, device, writer,
+            stage, stage_id, envs, iterations, agent, optimizer, device, writer,
             is_main, is_distributed, local_rank, local_num_envs,
             local_batch_size, local_minibatch_size, global_step, start_time,
         )

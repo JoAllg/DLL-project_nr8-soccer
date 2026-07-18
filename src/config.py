@@ -23,7 +23,7 @@ class Stage(BaseModel):
     # ---------------------------------
     name: str
     environment: Environment = Environment()
-    iterations: int
+    total_steps: int
 
 
     # optional fields — can be omitted
