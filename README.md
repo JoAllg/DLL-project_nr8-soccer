@@ -27,13 +27,13 @@ If ODE was installed via the above command, sync the uv environment with:
 
 ```bash
 export LD_LIBRARY_PATH=$HOME/.local/lib64:$LD_LIBRARY_PATH
-CMAKE_ARGS="-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DODE_INCLUDE_DIRS=$HOME/.local/include -DODE_LIBRARIES=$HOME/.local/lib64/libode.so" uv sync --all-extras
+CMAKE_ARGS="-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DODE_INCLUDE_DIRS=$HOME/.local/include -DODE_LIBRARIES=$HOME/.local/lib64/libode.so" uv sync
 ```
 
 Otherwise (ODE available system-wide):
 
 ```bash
-uv sync --all-extras
+uv sync
 ```
 
 
@@ -43,18 +43,18 @@ uv sync --all-extras
 Via uv you can run the training with
 
 ```bash
-uv run src/ppo.py --track --capture-video --save-model
+uv run src/ppo.py --track --capture-video
 ```
 
 To use multiple GPUs do
 
 ```bash
-uv run torchrun --standalone --nnodes=1 --nproc_per_node=<NUM_GPUS> src/ppo.py --track --capture-video --save-model
+uv run torchrun --standalone --nnodes=1 --nproc_per_node=<NUM_GPUS> src/ppo.py --track --capture-video
 ```
 
 Optional:
 ```bash
---stage-selection "<stage-name>"
+--stage-selection="<stage-name>"
 ```
 
 # References

@@ -47,7 +47,7 @@ trap 'cd "$REPO_DIR" 2>/dev/null; git worktree remove --force "$RUN_DIR" 2>/dev/
 # submission, so it's already real and populated by this point.
 ln -sfn "$REPO_DIR/.venv" "$RUN_DIR/.venv"
 echo "### Syncing uv environment..."
-uv sync --all-extras
+uv sync
 
 # 3. Run the command (see this script / run.sbatch for the exact invocation)
 # Headless Slurm nodes have no display; default SDL to the dummy driver so

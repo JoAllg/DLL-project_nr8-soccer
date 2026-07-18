@@ -11,7 +11,7 @@ cd "$REPO_DIR" || { echo "Repository not found at $REPO_DIR"; exec bash -i; }
 # symlinks to it instead of building its own (see run.job.template), so this is
 # what guarantees a real target is there the first time hpc.srun is ever used.
 echo "### Syncing uv environment..."
-uv sync --all-extras
+uv sync
 
 # Show running jobs
 echo "### Your running jobs:"

@@ -5,13 +5,6 @@ import warnings
 import signal
 from datetime import datetime
 
-# Auto-select headless rendering backend if no display is available
-if not os.environ.get("DISPLAY") and "MUJOCO_GL" not in os.environ:
-    if os.path.exists("/dev/nvidia0"):
-        os.environ["MUJOCO_GL"] = "egl"   # GPU offscreen rendering
-    else:
-        os.environ["MUJOCO_GL"] = "osmesa" # CPU software rendering
-
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -30,7 +23,6 @@ warnings.filterwarnings(
 
 import gymnasium as gym
 import numpy as np
-import shimmy  # noqa: F401
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -203,9 +195,8 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
             env = gym.make(env_id, **(environment_args or {}))
-        # flatten only for the MLP (and dm_control's Dict obs); the transformer
-        # agent skips it — flattening would destroy the per-entity structure it
-        # re-parses into tokens
+        # flatten only for the MLP; the transformer agent skips it — flattening
+        # would destroy the per-entity structure it re-parses into tokens
         if flatten:
             env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)

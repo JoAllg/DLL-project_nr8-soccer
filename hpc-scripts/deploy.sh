@@ -222,7 +222,7 @@ ssh "$HPC" "
     export PATH=\"\$HOME/.local/bin:\$PATH\"
     export LD_LIBRARY_PATH=\"\$HOME/.local/lib64:\$LD_LIBRARY_PATH\"
     CMAKE_ARGS=\"-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DODE_INCLUDE_DIRS=\$HOME/.local/include -DODE_LIBRARIES=\$HOME/.local/lib64/libode.so\" \
-        uv sync --all-extras --project \"\$REPO_DIR\"
+        uv sync --project \"\$REPO_DIR\"
 "
 
 echo ""
