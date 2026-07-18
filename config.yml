@@ -1,22 +1,26 @@
 defaults: &defaults
-  iterations: 4200
 
 stages:
-  - name: "1 robot"
+  - name: "1 Single robot"
     <<: *defaults
     environment:
       n_robots_blue: 1
       n_robots_yellow: 0
+      rewards:
+        # reward name: weight; each reward is normalized to [-1, 1] per step, # so weights are directly comparable (goal is a one-time event bonus)
+        proximity: 0.1
+        progress: 0.8
+        kick: 0.1
+        goal: 100
 
   - name: "2 robots"
+    <<: *defaults
     environment:
       n_robots_blue: 2
       n_robots_yellow: 0
-    <<: *defaults
 
   - name: "2 vs 2 static"
     <<: *defaults
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
-

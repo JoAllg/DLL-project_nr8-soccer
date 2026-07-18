@@ -8,6 +8,11 @@ class Environment(BaseModel):
     n_robots_blue: int = 1
     n_robots_yellow: int = 0
 
+    # optional fields — can be omitted
+    # ---------------------------------
+    # reward name -> weight pairs, resolved to _reward_{name} methods by the environment
+    rewards: Optional[dict[str, float]] = None
+
     # reject any field not defined above
     model_config = ConfigDict(extra="forbid")
 
@@ -65,7 +70,7 @@ def load_config(path: str) -> Config:
 
 # test reading the config
 if __name__ == "__main__":
-    config = load_config("example_config.yml")
+    config = load_config("config.yml")
 
     for stage in config.stages:
         print(stage.steps)

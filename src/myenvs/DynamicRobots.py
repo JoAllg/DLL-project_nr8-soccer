@@ -35,8 +35,9 @@ class SSLDynamicRobots(SSLBaseEnv):
     Action space: [v_x, v_y, v_theta, kick, dribbler] (normalized to [-1, 1])
 
     Reward:
-        - Shaped: robot-to-ball proximity + ball progress toward goal (delta)
-        - Goal: +100 bonus on scoring
+        Weighted sum of named reward functions (each normalized to [-1, 1]
+        per step), configurable via the `rewards` init arg: name -> weight.
+        Available names: see _reward_* methods
     """
 
     # Values to modify: episode length and player/ball speed-up
@@ -59,7 +60,10 @@ class SSLDynamicRobots(SSLBaseEnv):
     TEAMMATE_DIM = 7  # [x, y, sin(θ), cos(θ), vx, vy, vθ]
     OPPONENT_DIM = 7  # [x, y, vx, vy, vθ] (no heading observed for opponents)
 
-    def __init__(self, render_mode=None, field_type=1, n_robots_blue=2, n_robots_yellow=0):
+    DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick": 0.1, "goal": 100.0}
+
+    def __init__(self, render_mode=None, field_type=1, n_robots_blue=2, n_robots_yellow=0,
+                 rewards=None):
         super().__init__(
             field_type=field_type,  # 0=(12x9)field, 1=(9x6)field, 2=(6x4)field
             n_robots_blue=n_robots_blue,
@@ -89,6 +93,14 @@ class SSLDynamicRobots(SSLBaseEnv):
         # dynamic parameters
         self.n_robots_yellow = n_robots_yellow
         self.n_robots_blue = n_robots_blue
+
+        # reward configuration: name -> weight, resolved to _reward_{name} methods
+        self.reward_weights = dict(rewards if rewards is not None else self.DEFAULT_REWARD_WEIGHTS)
+        unknown = [name for name in self.reward_weights if not callable(getattr(self, f"_reward_{name}", None))]
+        if unknown:
+            raise ValueError(f"unknown reward names {unknown}, available: "
+                             f"{sorted(self.DEFAULT_REWARD_WEIGHTS)}")
+        self.reward_functions = {name: getattr(self, f"_reward_{name}") for name in self.reward_weights}
 
     def _frame_to_observations(self):
         ball = self.frame.ball
@@ -168,54 +180,70 @@ class SSLDynamicRobots(SSLBaseEnv):
             self.episode_steps = 0
             return 0, True
 
-        ball = self.frame.ball
-        robots = self.frame.robots_blue
-        goal_x = self.field.length / 2
-
         # End episode if robot goes out of bounds
         # if (abs(robot.x) > self.field.length / 2 or abs(robot.y) > self.field.width / 2):
         #     self.episode_steps = 0
         #     return -1, True
 
-        # Reward 1: robot proximity to ball (normalized)
-        # closest robot to ball proximity to avoid all robots just drive to ball
+        reward = sum(weight * self.reward_functions[name]()
+                     for name, weight in self.reward_weights.items())
+        
+        return reward, self._reward_goal() > 0 # goal ends the episode even when its reward weight is not configured
+
+    ### REWARD DEFINITIONS
+    ### should be in [-1, 1]!
+    def _reward_proximity(self):
+        """Step progress of the closest robot toward the ball.
+
+        Only the closest robot to ball triggers the reward to avoid all robots trying to drive the ball
+        Bounded by max_v * time_step.
+        """
         if self.last_frame is None:
-            reward_proximity = 0
-        else:
-            last_robots = self.last_frame.robots_blue
-            current_dist = []  # list of distances per robot id
-            last_dist = []
-            closest_id = None
-            last_closest_dist = float("inf")
+            return 0.0
 
-            for i, (current, last) in enumerate(zip(robots.values(), last_robots.values())):
-                current_dist.append(np.linalg.norm([current.x - ball.x, current.y - ball.y]))
-                last_dist.append(np.linalg.norm([last.x - ball.x, last.y - ball.y]))
+        ball = self.frame.ball
+        current_dist = []  # list of distances per robot id
+        last_dist = []
+        closest_id = 0
+        last_closest_dist = float("inf")
 
-                # which robot was the closest in the last frame
-                if last_dist[i] < last_closest_dist:
-                    closest_id = i
-                    last_closest_dist = last_dist[i]
+        for i, (current, last) in enumerate(
+                zip(self.frame.robots_blue.values(), self.last_frame.robots_blue.values())):
+            current_dist.append(np.linalg.norm([current.x - ball.x, current.y - ball.y]))
+            last_dist.append(np.linalg.norm([last.x - ball.x, last.y - ball.y]))
 
-            # reward if closest robot got closer
-            reward_proximity = last_dist[closest_id] - current_dist[closest_id]
+            # which robot was the closest in the last frame
+            if last_dist[i] < last_closest_dist:
+                closest_id = i
+                last_closest_dist = last_dist[i]
 
-        # Reward 2: ball progress toward goal (delta distance, normalized)
+        # reward if closest robot got closer
+        delta = last_dist[closest_id] - current_dist[closest_id]
+        return delta / (self.max_v * self.time_step) # <= 1 (except for additional collisions)
+
+    def _reward_progress(self):
+        """Ball progress toward the goal, (delta distance per step,
+        normalized by the max ball displacement kick_speed * time_step)."""
         if self.last_frame is None:
-            reward_progress = 0
-        else:
-            last_ball = self.last_frame.ball
-            current_dist = np.linalg.norm([goal_x - ball.x, ball.y])
-            last_dist = np.linalg.norm([goal_x - last_ball.x, last_ball.y])
-            reward_progress = last_dist - current_dist
+            return 0.0
 
-        reward_kick = self.frame.ball.v_x / self.kick_speed
+        ball = self.frame.ball
+        last_ball = self.last_frame.ball
+        goal_x = self.field.length / 2
+        current_dist = np.linalg.norm([goal_x - ball.x, ball.y])
+        last_dist = np.linalg.norm([goal_x - last_ball.x, last_ball.y])
+        return (last_dist - current_dist) / (self.kick_speed * self.time_step)
 
-        # Check goal condition
-        if ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2:
-            return 100 + 0.1 * reward_proximity + 0.8 * reward_progress + 0.1 * reward_kick, True
+    def _reward_kick(self):
+        """Ball velocity toward the goal (x-axis), noramlized by kick_speed"""
+        return self.frame.ball.v_x / self.kick_speed
 
-        return 0.1 * reward_proximity + 0.8 * reward_progress + 0.1 * reward_kick, False
+    def _reward_goal(self):
+        """1.0 when the ball is in the goal, else 0.0."""
+        ball = self.frame.ball
+        goal_x = self.field.length / 2
+        in_goal = ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2
+        return 1.0 if in_goal else 0.0
 
     def _get_initial_positions_frame(self):
         self.episode_steps = 0
