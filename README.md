@@ -8,6 +8,7 @@ In soccer, players need to work together to play well. Transformers can be usefu
 - Evaluate cooperation and generalization to different team sizes (optional!)
 
 # Installation
+
 The suggested python environment manager is [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
 `rc-robosim` is build from source. For that the [ODE (Open Dynamics Engine)](https://ode.org/wiki/index.php?title=Manual) library is required. Install it via your system package manager (see the manual) or build it from source:
@@ -35,14 +36,25 @@ Otherwise (ODE available system-wide):
 uv sync --all-extras
 ```
 
+
+
 ## Usage
+
 Via uv you can run the training with
-```
+
+```bash
 uv run src/ppo.py --track --capture-video --save-model
 ```
+
 To use multiple GPUs do
-```
+
+```bash
 uv run torchrun --standalone --nnodes=1 --nproc_per_node=<NUM_GPUS> src/ppo.py --track --capture-video --save-model
+```
+
+Optional:
+```bash
+--stage-selection "<stage-name>"
 ```
 
 # References
@@ -52,13 +64,13 @@ uv run torchrun --standalone --nnodes=1 --nproc_per_node=<NUM_GPUS> src/ppo.py -
 
 
 # Ressources
-rSoccer environment: https://github.com/robocin/rSoccer
 
-Proximal Policy Optimization (PPO) paper: https://arxiv.org/pdf/1707.06347
+rSoccer environment: [https://github.com/robocin/rSoccer](https://github.com/robocin/rSoccer)
 
-Very good initial implementation (CleanRL): https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py
+Proximal Policy Optimization (PPO) paper: [https://arxiv.org/pdf/1707.06347](https://arxiv.org/pdf/1707.06347)
 
-Introduction into Deep RL: https://spinningup.openai.com/en/latest/spinningup/rl_intro.html (PPO is also explained there!)
+Very good initial implementation (CleanRL): [https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py](https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_continuous_action.py)
 
-For transformers, there are a lof of very good tutorials out there, but it depends on how much you already understand. In the end, you will probably be working with something of the PyTorch library: https://docs.pytorch.org/docs/2.12/generated/torch.nn.TransformerEncoderLayer.html
+Introduction into Deep RL: [https://spinningup.openai.com/en/latest/spinningup/rl_intro.html](https://spinningup.openai.com/en/latest/spinningup/rl_intro.html) (PPO is also explained there!)
 
+For transformers, there are a lof of very good tutorials out there, but it depends on how much you already understand. In the end, you will probably be working with something of the PyTorch library: [https://docs.pytorch.org/docs/2.12/generated/torch.nn.TransformerEncoderLayer.html](https://docs.pytorch.org/docs/2.12/generated/torch.nn.TransformerEncoderLayer.html)

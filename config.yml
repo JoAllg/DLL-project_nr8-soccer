@@ -1,7 +1,8 @@
 defaults: &defaults
+  iterations: 250
 
 stages:
-  - name: "1 Single robot"
+  - name: "1v0"
     <<: *defaults
     environment:
       n_robots_blue: 1
@@ -13,13 +14,13 @@ stages:
         kick: 0.1
         goal: 100
 
-  - name: "2 robots"
+  - name: "2v0"
     <<: *defaults
     environment:
       n_robots_blue: 2
       n_robots_yellow: 0
 
-  - name: "2 vs 2 static"
+  - name: "2vs2 static"
     <<: *defaults
     environment:
       n_robots_blue: 2
