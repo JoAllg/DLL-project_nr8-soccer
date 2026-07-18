@@ -84,6 +84,8 @@ class SSLDynamicRobots(SSLBaseEnv):
         # override SSLBaseEnv's motor-RPM max_v so command scaling and
         # observation normalization use the same bound
         self.max_v = self.speed_up * self.field.length / self.FIELD_CROSS_TIME
+        # v_theta is in deg/s, convert MAX_W into same format
+        self.max_w = np.rad2deg(self.MAX_W)
         self.kick_speed = self.KICK_SPEED_FACTOR * self.max_v
         self.max_steps = self.max_steps
 
