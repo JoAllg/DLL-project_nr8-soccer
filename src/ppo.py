@@ -2,6 +2,7 @@
 import os
 import time
 import warnings
+import signal
 from datetime import datetime
 
 # Auto-select headless rendering backend if no display is available
@@ -205,6 +206,17 @@ def run_stage(
 
     #set new environment
     agent.set_env(envs)
+
+    def save_checkpoint(sig=None, frame=None):
+        print(f"saving_model checkpoint...")
+        model_path = f"runs/{run_name}/{args.exp_name}_stage{stage_id}_{stage.name}_steps_{args.num_steps}.cleanrl_model"
+        torch.save(agent.state_dict(), model_path)
+        print(f"[stage {stage_id} at steps {args.num_steps}] model saved to {model_path}")
+
+    #install signal handler
+    signal.signal(signal.SIGTERM, save_checkpoint)
+    signal.signal(signal.SIGINT, save_checkpoint)
+
 
     scheduler = None
     if args.anneal_lr:
