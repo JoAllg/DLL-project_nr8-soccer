@@ -49,6 +49,7 @@ import rsoccer_gym  # noqa: F401
 import myenvs  # noqa: F401
 from config import load_config, override_with_args, flatten_dict
 
+
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
@@ -153,6 +154,7 @@ class Args:
     """How often the model should be saved in between (0 -> only save at the end
                                                        of a stage)"""
 
+
 def get_explicit_args(args_cls, parsed_args) -> dict:
     """
     Return only the fields that were explicitly passed on the CLI,
@@ -168,8 +170,32 @@ def get_explicit_args(args_cls, parsed_args) -> dict:
     }
     return explicit
 
+
+def upload_model_artifact(model_path: str, stage_id: int, stage_name: str, global_step: int, is_final: bool):
+    """Upload a saved .cleanrl_model checkpoint to wandb as a versioned Artifact.
+    No-op if wandb tracking isn't active (call site should still gate on is_main/config.track,
+    this is just a safety net in case it's called from elsewhere)."""
+    if wandb.run is None:
+        return
+    artifact = wandb.Artifact(
+        name=f"model-stage{stage_id}-{stage_name}",
+        type="model",
+        metadata={
+            "stage_id": stage_id,
+            "stage_name": stage_name,
+            "global_step": global_step,
+            "final": is_final,
+        },
+    )
+    artifact.add_file(model_path)
+    aliases = ["latest"]
+    if is_final:
+        aliases.append("final")
+    wandb.log_artifact(artifact, aliases=aliases)
+
+
 def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
-             environment_args: Optional[dict]= None):
+             environment_args: Optional[dict] = None):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array", **(environment_args
@@ -193,6 +219,7 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
 
     return thunk
 
+
 def run_stage(
         stage,
         stage_id: int,
@@ -208,6 +235,7 @@ def run_stage(
         local_num_envs,
         local_batch_size,
         local_minibatch_size,
+        stage_num_minibatches,
         global_step: int,
         start_time: float,) -> int:
     """Runs training loop of one stage and returns updated global_step"""
@@ -222,15 +250,18 @@ def run_stage(
         model_path = f"runs/{run_name}/{config.exp_name}_stage{stage_id}_{stage.name}_steps_{global_step}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"[stage {stage_id} at steps {global_step}] model saved to {model_path}")
+        if is_main and config.track:
+            upload_model_artifact(model_path, stage_id, stage.name, global_step, is_final=False)
 
     #install signal handler
     signal.signal(signal.SIGTERM, save_checkpoint)
     signal.signal(signal.SIGINT, save_checkpoint)
 
-
     scheduler = None
     if config.anneal_lr:
-        total_optimizer_steps = iterations * config.update_epochs * config.num_minibatches
+        # per-stage: total optimizer steps must use this stage's own num_minibatches,
+        # not the global config default, since batch/minibatch sizing is now per-stage
+        total_optimizer_steps = iterations * config.update_epochs * stage_num_minibatches
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
             num_warmup_steps=int(config.warmup_ratio * total_optimizer_steps),
@@ -253,15 +284,12 @@ def run_stage(
     videos_seen: set[str] = set()
     videos_sizes: dict[str, int] = {}
 
-
-
     env_seed = config.seed + local_rank * local_num_envs
     next_obs, _ = envs.reset(seed=env_seed)
     next_obs = torch.Tensor(next_obs).to(device)
     next_done = torch.zeros(local_num_envs).to(device)
 
     last_save_step = 0
-
 
     for iteration in range(1, iterations + 1):
         # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
@@ -272,7 +300,6 @@ def run_stage(
 
         for step in range(0, stage.steps):
             global_step += config.num_envs
-
 
             obs[step] = next_obs
             dones[step] = next_done
@@ -399,6 +426,10 @@ def run_stage(
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if is_main and writer is not None:
+            # logged every iteration (not just at stage boundaries) so the line
+            # renders as a proper step function instead of being linearly
+            # interpolated across two sparse points spanning the whole stage
+            writer.add_scalar("charts/stage_id", stage_id, global_step)
             writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
             writer.add_scalar("charts/entropy_coefficient", ent_coef, global_step)
             writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
@@ -413,7 +444,6 @@ def run_stage(
             print("stage_id:", stage_id)
             writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
-
         if is_main and config.track and config.capture_video:
             utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
@@ -422,13 +452,13 @@ def run_stage(
         model_path = f"runs/{run_name}/{config.exp_name}_stage{stage_id}_{stage.name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"[stage {stage_id}] model saved to {model_path}")
+        if config.track:
+            upload_model_artifact(model_path, stage_id, stage.name, global_step, is_final=True)
 
     if is_main and config.track and config.capture_video:
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
 
     return global_step
-
-
 
 
 if __name__ == "__main__":
@@ -445,28 +475,21 @@ if __name__ == "__main__":
     is_distributed = world_size > 1
     is_main = local_rank == 0
 
-    #TODO: check config.num_steps what is it and how to use correctly
-
-    # num_envs is global, split across ranks; derived hyperparameters stay
-    # independent of world_size so step counts match the single-process run.
-    assert config.num_envs % world_size == 0, "num_envs must be divisible by world_size"
-    local_num_envs = config.num_envs // world_size
-    local_batch_size = local_num_envs * config.num_steps
-    assert local_batch_size % config.num_minibatches == 0, "local batch size must be divisible by num_minibatches"
-    local_minibatch_size = local_batch_size // config.num_minibatches
-    config.batch_size = int(config.num_envs * config.num_steps)
-    config.minibatch_size = int(config.batch_size // config.num_minibatches)
+    # NOTE: batch_size / minibatch_size / num_minibatches are computed per-stage,
+    # inside the stage loop below, since each stage may have its own `steps` and
+    # (optionally) its own `num_minibatches` override. There is no longer a
+    # global pre-loop computation — it was dead code referencing a nonexistent
+    # config.num_steps and was overwritten before first use anyway.
 
     run_name = f"{config.env_id}__{config.exp_name}__{config.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
-
 
     # select stages from config
     if config.stage_selection:
         stage_ids = config.get_stages_from_name(config.stage_selection)
 
     # calculate total_timesteps
-    steps = sum(s.steps if s.steps is not None else config.num_steps for s in config.stages)
+    steps = sum(s.steps if s.steps is not None else config.num_envs for s in config.stages)
     config.total_timesteps = sum(stage.total_steps for stage in config.stages)
 
     writer = None
@@ -487,6 +510,11 @@ if __name__ == "__main__":
                 monitor_gym=False,
                 save_code=True,
             )
+
+            # use global step as x axis in wandb
+            wandb.define_metric("global_step")
+            wandb.define_metric("*", step_metric="global_step")
+
             if config.capture_video:
                 # sync_tensorboard owns the wandb step, so give videos an explicit
                 # x-axis via a custom step metric (see utils.log_new_videos)
@@ -500,13 +528,13 @@ if __name__ == "__main__":
                 f"|{key}|{value}|" for key, value in flatten_dict(config_model).items()
             )),
         )
-        wandb.config.update(config_model, allow_val_change=True)
+        if is_main and config.track:
+            wandb.config.update(config_model, allow_val_change=True)
 
     # TRY NOT TO MODIFY: seeding
     utils.set_seed(config.seed, config.torch_deterministic)
 
     stage_ids = config.get_stages_from_name(config.stage_selection)
-
 
     agent = None
     optimizer = None
@@ -518,20 +546,29 @@ if __name__ == "__main__":
         stage = config.stages[stage_id]
         env_args = stage.environment.model_dump()
 
-        # calculate iterations from totaL_steps per stage
+        # calculate iterations from total_steps per stage
         # total_steps = iterations * num_envs * stage.steps
-        iterations = stage.total_steps // (config.num_envs * stage.steps) 
+        iterations = stage.total_steps // (config.num_envs * stage.steps)
 
         print(f"running stage: {stage_id} : {stage.name}")
 
         assert config.num_envs % world_size == 0, "num_envs must be divisible by world_size"
         local_num_envs = config.num_envs // world_size
-        local_batch_size = local_num_envs * stage.steps
-        assert local_batch_size % config.num_minibatches == 0, "local batch size must be divisible by num_minibatches"
-        local_minibatch_size = local_batch_size // config.num_minibatches
-        config.batch_size = int(config.num_envs * stage.steps)
-        config.minibatch_size = int(config.batch_size // config.num_minibatches)
 
+        # per-stage num_minibatches: use the stage's own override if given,
+        # otherwise fall back to the global config default
+        stage_num_minibatches = (
+            stage.num_minibatches if stage.num_minibatches is not None else config.num_minibatches
+        )
+
+        local_batch_size = local_num_envs * stage.steps
+        assert local_batch_size % stage_num_minibatches == 0, (
+            f"stage '{stage.name}': local batch size ({local_batch_size}) must be divisible "
+            f"by num_minibatches ({stage_num_minibatches})"
+        )
+        local_minibatch_size = local_batch_size // stage_num_minibatches
+        config.batch_size = int(config.num_envs * stage.steps)
+        config.minibatch_size = int(config.batch_size // stage_num_minibatches)
 
         utils.set_seed(config.seed, config.torch_deterministic)
 
@@ -582,23 +619,22 @@ if __name__ == "__main__":
                 np.random.seed(config.seed + local_rank)
 
         if is_main and writer:
-            writer.add_scalar("charts/stage_id", stage_id, global_step)
+            writer.add_scalar("charts/batch_size", config.batch_size, global_step)
+            writer.add_scalar("charts/minibatch_size", config.minibatch_size, global_step)
+            writer.add_scalar("charts/num_minibatches", stage_num_minibatches, global_step)
 
         global_step = run_stage(
             stage, stage_id, envs, iterations, agent, optimizer, device, writer,
             is_main, is_distributed, local_rank, local_num_envs,
-            local_batch_size, local_minibatch_size, global_step, start_time,
+            local_batch_size, local_minibatch_size, stage_num_minibatches,
+            global_step, start_time,
         )
-
-        if is_main and writer:
-            writer.add_scalar("charts/stage_id", stage_id, global_step)
 
         envs.close()
 
     if writer is not None:
         writer.close()
-    
+
     if is_distributed:
         dist.barrier()
         dist.destroy_process_group()
-

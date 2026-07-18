@@ -31,6 +31,8 @@ class Stage(BaseModel):
     steps: int = Field(default=4096, multiple_of=1024)
     n_robots_yellow: Optional[int] = None
     save_model: bool = True
+    
+    num_minibatches: Optional[int] = None
 
     # reject any field not defined above
     model_config = ConfigDict(extra="forbid")
