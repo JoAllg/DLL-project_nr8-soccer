@@ -178,7 +178,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         #     return -1, True
 
         # Reward 1: robot proximity to ball (normalized)
-        # TODO: -> closest robot to ball proximity to avoid all robots just drive to ball
+        # closest robot to ball proximity to avoid all robots just drive to ball
         if self.last_frame is None:
             reward_proximity = 0
         else:
