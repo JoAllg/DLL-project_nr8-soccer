@@ -135,12 +135,12 @@ class SSLDynamicRobots(SSLBaseEnv):
             for robot in robots_yellow.values()
         ]
 
-        return np.array(
+        obs = np.array(
             [
                 ball.x / fl,
                 ball.y / fw,
-                ball.v_x / self.kick_speed,  # was self.max_v
-                ball.v_y / self.kick_speed,  # was self.max_v
+                ball.v_x / self.kick_speed,
+                ball.v_y / self.kick_speed,
                 # team robots
                 *itertools.chain.from_iterable(robots_blue),
                 # robots oponnents
@@ -148,6 +148,8 @@ class SSLDynamicRobots(SSLBaseEnv):
             ],
             dtype=np.float32,
         )
+        # Clip to values because physics can exceed the nominal bounds (e.g. through collisions)
+        return np.clip(obs, -1.0, 1.0)
 
     def _get_commands(self, actions):
         # actions shape: (num_robots_blue, 5) -- one row of 5 values per robot
