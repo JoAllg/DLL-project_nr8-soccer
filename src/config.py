@@ -1,5 +1,6 @@
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+import re
 from typing import Optional, Literal
 from dataclasses import asdict, is_dataclass
 import os
@@ -36,6 +37,16 @@ class Stage(BaseModel):
 
     # reject any field not defined above
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def validate_wandb_safe_name(cls, v: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", v):
+            raise ValueError(
+                f"stage name '{v}' contains characters not allowed in wandb artifact "
+                f"names (only letters, digits, '-', '_', '.' are permitted). "
+            )
+        return v
 
 class Config(BaseModel):
     # required fields — must be present
