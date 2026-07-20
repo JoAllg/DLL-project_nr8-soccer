@@ -1,15 +1,33 @@
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 import re
-from typing import Optional, Literal
+from typing import Annotated, Optional, Literal
 from dataclasses import asdict, is_dataclass
 import os
+
+FieldFloat = Annotated[float, Field(ge=-1, le=1)]
+
+class Area(BaseModel):
+    min: tuple[FieldFloat, FieldFloat] = (-1.0 ,-1.0)
+    max: tuple[FieldFloat, FieldFloat] = (1.0, 1.0)
+
+    @field_validator("max")
+    @classmethod
+    def max_greater_eq_than_min(cls, v, info):
+        min_val = info.data.get("min")
+        if min_val and (v[0] < min_val[0] or v[1] < min_val[1]):
+            raise ValueError("max must be greater than min in both dimensions")
+        return v
 
 class Environment(BaseModel):
     # optional fields — can be omitted
     # ---------------------------------
     n_robots_blue: int = 1
     n_robots_yellow: int = 0
+
+    allowed_positions_blue: Area = Area()
+    allowed_positions_yellow: Area = Area()
+    allowed_positions_ball: Area = Area()
 
     # optional fields — can be omitted
     # ---------------------------------

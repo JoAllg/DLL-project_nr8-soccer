@@ -5,6 +5,9 @@ from rsoccer_gym.Render import SSLRenderField
 from rsoccer_gym.ssl.ssl_gym_base import SSLBaseEnv
 import rsoccer_gym.Render.ball as render_ball
 import itertools
+from typing import TypeAlias
+
+from config import Area
 
 render_ball.Ball.radius = 0.04  # 7x bigger for visibility
 
@@ -62,8 +65,17 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick": 0.1, "goal": 100.0}
 
-    def __init__(self, render_mode=None, field_type=1, n_robots_blue=2, n_robots_yellow=0,
-                 rewards=None):
+    AreaTuple = dict[str, tuple[float, float]]
+
+    def __init__(self, render_mode=None,
+                 field_type=1,
+                 n_robots_blue=2,
+                 n_robots_yellow=0,
+                 rewards=None,
+                 allowed_positions_blue: AreaTuple = dict(),
+                 allowed_positions_yellow: AreaTuple = dict(),
+                 allowed_positions_ball: AreaTuple = dict()):
+
         super().__init__(
             field_type=field_type,  # 0=(12x9)field, 1=(9x6)field, 2=(6x4)field
             n_robots_blue=n_robots_blue,
@@ -96,6 +108,10 @@ class SSLDynamicRobots(SSLBaseEnv):
         # dynamic parameters
         self.n_robots_yellow = n_robots_yellow
         self.n_robots_blue = n_robots_blue
+
+        self.allowed_positions_blue = allowed_positions_blue
+        self.allowed_positions_yellow = allowed_positions_yellow
+        self.allowed_positions_ball = allowed_positions_ball
 
         # reward configuration: name -> weight, resolved to _reward_{name} methods
         self.reward_weights = dict(rewards if rewards is not None else self.DEFAULT_REWARD_WEIGHTS)
@@ -284,25 +300,41 @@ class SSLDynamicRobots(SSLBaseEnv):
         window = 2.0 * self.field_scale
         gap = 0.3
 
-        # Ball spawns in the attacking third, near the goal
+        half_length = self.field.length / 2
+        half_width = self.field.width / 2
+        # Ball spawn position
+        min_x, min_y = self.allowed_positions_ball["min"]
+        max_x, max_y = self.allowed_positions_ball["max"]
         pos_frame.ball = Ball(
-            x=np.random.uniform(self.field.length / 3, self.field.length / 2 - goal_buffer),
-            y=np.random.uniform(-self.field.goal_width, self.field.goal_width),
+            x=np.random.uniform(min_x * half_length,
+                                max_x * half_length),
+            y=np.random.uniform(min_y * half_width,
+                                max_y * half_width),
         )
 
         # Spawn one robot per configured n_robots_blue
         for i in range(self.n_robots_blue):
+            min_x, min_y = self.allowed_positions_blue["min"]
+            max_x, max_y = self.allowed_positions_blue["max"]
+
             pos_frame.robots_blue[i] = Robot(
-                x=np.random.uniform(max(0, pos_frame.ball.x - window), pos_frame.ball.x - gap),
-                y=np.random.uniform(-self.field.goal_width, self.field.goal_width),
+                x=np.random.uniform(min_x * half_length,
+                                    max_x * half_length),
+                y=np.random.uniform(min_y * half_width,
+                                    max_y * half_width),
                 theta=np.random.uniform(0, 360),
             )
 
         # Spawn one robot per configured n_robots_yellow (loop does nothing if 0)
         for i in range(self.n_robots_yellow):
+            min_x, min_y = self.allowed_positions_yellow["min"]
+            max_x, max_y = self.allowed_positions_yellow["max"]
+
             pos_frame.robots_yellow[i] = Robot(
-                x=np.random.uniform(0, self.field.length / 2),
-                y=np.random.uniform(-self.field.goal_width, self.field.goal_width),
+                x=np.random.uniform(min_x * half_length,
+                                    max_x * half_length),
+                y=np.random.uniform(min_y * half_width,
+                                    max_y * half_width),
                 theta=np.random.uniform(0, 360),
             )
 

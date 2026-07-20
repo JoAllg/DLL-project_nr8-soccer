@@ -7,6 +7,13 @@ stages:
     environment:
       n_robots_blue: 1
       n_robots_yellow: 0
+      allowed_positions_ball:
+        # somewhere on the right before the goal
+        min: [0.7, -.6]
+        max: [ 0.9, 0.6]
+      allowed_positions_blue:
+        min: [0.4, -.6]
+        max: [ 0.8, 0.6]
       rewards:
         # reward name: weight; each reward is normalized to [-1, 1] per step, # so weights are directly comparable (goal is a one-time event bonus)
         proximity: 0.1
@@ -19,6 +26,13 @@ stages:
     environment:
       n_robots_blue: 2
       n_robots_yellow: 0
+      allowed_positions_ball:
+        # somewhere on the right before the goal
+        min: [0.7, -.6]
+        max: [ 0.9, 0.6]
+      allowed_positions_blue:
+        min: [0.4, -.6]
+        max: [ 0.8, 0.6]
       rewards:
         proximity: 0.1
         progress: 0.8
@@ -30,6 +44,7 @@ stages:
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
+      # spawn everything random on the field
       rewards:
         proximity: 0.1
         progress: 0.8
