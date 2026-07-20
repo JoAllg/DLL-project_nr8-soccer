@@ -44,6 +44,29 @@ stages:
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
+      allowed_positions_ball:
+        # somewhere on the right before the goal
+        min: [0.6, -.6]
+        max: [ 0.9, 0.6]
+      # teammates somewhere in the oponents half
+      allowed_positions_blue:
+        min: [0, -1]
+        max: [ 0.8, 1]
+      # position oponents somewhere before the goal
+      allowed_positions_yellow:
+        min: [0.4, -0.4]
+        max: [ 0.9, 0.4]
+      rewards:
+        proximity: 0.1
+        progress: 0.8
+        kick: 0.1
+        goal_close: 100
+
+  - name: "2vs2random"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
       # spawn everything random on the field
       rewards:
         proximity: 0.1
