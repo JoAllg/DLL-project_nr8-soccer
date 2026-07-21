@@ -9,7 +9,7 @@ from typing import TypeAlias, Protocol, Optional
 from agent import Agent
 
 from config import Area
-from .Opponent import OPPONENT_POLICIES
+from .opponent import OPPONENT_POLICIES, AgentOpponentPolicy
 
 render_ball.Ball.radius = 0.04  # 7x bigger for visibility
 
@@ -78,7 +78,8 @@ class SSLDynamicRobots(SSLBaseEnv):
                  allowed_positions_blue: AreaTuple = dict(),
                  allowed_positions_yellow: AreaTuple = dict(),
                  allowed_positions_ball: AreaTuple = dict(),
-                 opponent_strategy: Optional[str] = None):
+                 opponent_strategy: Optional[str] = None,
+                 opponent_model: Optional[str] = None):
 
         super().__init__(
             field_type=field_type,  # 0=(12x9)field, 1=(9x6)field, 2=(6x4)field
@@ -130,6 +131,9 @@ class SSLDynamicRobots(SSLBaseEnv):
                              f"{sorted(self.DEFAULT_REWARD_WEIGHTS)}")
         self.reward_functions = {name: getattr(self, f"_reward_{name}") for name in self.reward_weights}
 
+    def set_opponent_agent(self, agent: Agent):
+        self.opponent_policy = AgentOpponentPolicy(agent)
+
     def _build_obs_for(self, my_robots, opp_robots, mirror: bool):
         """mirror=True flips x and heading so the caller's team is always
         'attacking toward +x', matching how the net was trained."""
@@ -138,35 +142,38 @@ class SSLDynamicRobots(SSLBaseEnv):
         fw = self.field.width / 2
         ball = self.frame.ball
 
+        # TODO: understand why I don't need to turn 180 degreees
+        theta_offset = 0 if mirror else 0.0
+
         mine = [
             (
                 sign * robot.x / fl,
-                robot.y / fw,
-                np.sin(np.deg2rad(180 * mirror + robot.theta)),
-                np.cos(np.deg2rad(180 * mirror + robot.theta)),
+                sign * robot.y / fw,
+                np.sin(np.deg2rad(theta_offset + robot.theta)),
+                np.cos(np.deg2rad(theta_offset + robot.theta)),
                 sign * robot.v_x / self.max_v,
-                robot.v_y / self.max_v,
-                robot.v_theta / self.max_w,
+                sign * robot.v_y / self.max_v,
+                sign * robot.v_theta / self.max_w,
             )
             for robot in my_robots.values()
         ]
         opp = [
             (
                 sign * robot.x / fl,
-                robot.y / fw,
-                np.sin(np.deg2rad(180 * mirror + robot.theta)),
-                np.cos(np.deg2rad(180 * mirror + robot.theta)),
+                sign * robot.y / fw,
+                np.sin(np.deg2rad(theta_offset + robot.theta)),
+                np.cos(np.deg2rad(theta_offset + robot.theta)),
                 sign * robot.v_x / self.max_v,
-                robot.v_y / self.max_v,
-                robot.v_theta / self.max_w,
+                sign * robot.v_y / self.max_v,
+                sign * robot.v_theta / self.max_w,
             )
             for robot in opp_robots.values()
         ]
         obs = np.array([
             sign * ball.x / fl,
-            ball.y / fw,
+            sign * ball.y / fw,
             sign * ball.v_x / self.kick_speed,
-            ball.v_y / self.kick_speed,
+            sign * ball.v_y / self.kick_speed,
             *itertools.chain.from_iterable(mine),
             *itertools.chain.from_iterable(opp),
         ], dtype=np.float32)

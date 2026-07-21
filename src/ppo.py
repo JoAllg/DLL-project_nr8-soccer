@@ -499,6 +499,7 @@ if __name__ == "__main__":
     stage_ids = config.get_stages_from_name(config.stage_selection)
 
     agent = None
+    agent_opponent = None
     optimizer = None
     device = None
     global_step = 0
@@ -539,6 +540,7 @@ if __name__ == "__main__":
                 make_env(config.env_id, i, config.capture_video and is_main, run_name, config.gamma,
                           flatten=config.agent_type == "mlp", environment_args=env_args)
                 for i in range(local_num_envs)
+
             ],
             context="spawn" # spawn new process each time otherwise deadlock at 2nd stage
         )
@@ -579,6 +581,23 @@ if __name__ == "__main__":
             if is_distributed:
                 torch.manual_seed(config.seed + local_rank)
                 np.random.seed(config.seed + local_rank)
+
+        # defining opponent agent
+        if agent_opponent is None and stage.environment.opponent_strategy == "Agent" and stage.environment.opponent_model:
+            agent_opponent = Agent(
+                envs, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
+                n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
+                dropout=config.dropout, critic_pooling=config.critic_pooling,
+            ).to(device)
+            agent_opponent.load_state_dict(torch.load(stage.environment.opponent_model, map_location=device))
+            envs.call("set_opponent_agent", agent_opponent) 
+            
+
+        
+
+
+
+            
 
         global_step = run_stage(
             stage, stage_id, envs, iterations, agent, optimizer, device, writer,
