@@ -44,6 +44,7 @@ stages:
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
+      opponent_strategy: "Random"
       allowed_positions_ball:
         # somewhere on the right before the goal
         min: [0.6, -.6]

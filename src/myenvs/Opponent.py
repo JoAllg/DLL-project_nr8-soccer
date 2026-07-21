@@ -20,11 +20,16 @@ class AgentOpponentPolicy:
         self.agent = agent
 
     def act(self, env) -> np.ndarray:
-        obs = env._build_obs_for(env.frame, env.frame.robots_yellow,
+        obs = env._build_obs_for(env.frame.robots_yellow,
                                   env.frame.robots_blue, mirror=True)
         if self.agent is None:
             return np.zeros([env.n_robots_yellow, 5])
 
         action, _, _, _ = self.agent.get_action_and_value(obs) #TODO: add deterministic flag
             # action here is flat for n_robots_yellow==1; reshape if you support more
-        return action.reshape(env.n_robots_yellow, 5)
+        return action.numpy()
+
+OPPONENT_POLICIES = {
+    "Random": RandomOpponentPolicy,
+    "Agent": AgentOpponentPolicy,
+}

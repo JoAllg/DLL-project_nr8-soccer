@@ -9,7 +9,7 @@ from typing import TypeAlias, Protocol, Optional
 from agent import Agent
 
 from config import Area
-from .Opponent import OpponentPolicy, RandomOpponentPolicy
+from .Opponent import OPPONENT_POLICIES
 
 render_ball.Ball.radius = 0.04  # 7x bigger for visibility
 
@@ -78,7 +78,7 @@ class SSLDynamicRobots(SSLBaseEnv):
                  allowed_positions_blue: AreaTuple = dict(),
                  allowed_positions_yellow: AreaTuple = dict(),
                  allowed_positions_ball: AreaTuple = dict(),
-                 opponent_policy: OpponentPolicy = None):
+                 opponent_strategy: Optional[str] = None):
 
         super().__init__(
             field_type=field_type,  # 0=(12x9)field, 1=(9x6)field, 2=(6x4)field
@@ -96,7 +96,10 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.episode_steps = 0
         self.last_touch_x = None
 
-        self.opponent_policy = opponent_policy or RandomOpponentPolicy()
+    
+        self.opponent_policy = None
+        if opponent_strategy: 
+            self.opponent_policy = OPPONENT_POLICIES[opponent_strategy]()
 
         self.field_scale = self.field.length / self.FIELD_REF_LENGTH
         # override SSLBaseEnv's motor-RPM max_v so command scaling and

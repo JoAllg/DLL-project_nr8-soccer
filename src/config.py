@@ -25,6 +25,9 @@ class Environment(BaseModel):
     n_robots_blue: int = 1
     n_robots_yellow: int = 0
 
+    # string resolved to to <Name>OpponentPolicy options <agent> <random>
+    opponent_strategy: Optional[str] = None
+
     allowed_positions_blue: Area = Area()
     allowed_positions_yellow: Area = Area()
     allowed_positions_ball: Area = Area()
