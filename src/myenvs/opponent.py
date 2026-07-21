@@ -38,7 +38,7 @@ class AgentOpponentPolicy:
                 action[:, 0] *= -1.0  # v_x
                 action[:, 1] *= -1.0  # v_y
                 action[:, 2] *= -1.0  # v_theta
-        return action
+        return action.clip(-1, 1)
 
 OPPONENT_POLICIES = {
     "Random": RandomOpponentPolicy,
