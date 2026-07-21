@@ -143,7 +143,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         ball = self.frame.ball
 
         # TODO: understand why I don't need to turn 180 degreees
-        theta_offset = 0 if mirror else 0.0
+        theta_offset = 180 if mirror else 0.0
 
         mine = [
             (
@@ -153,7 +153,7 @@ class SSLDynamicRobots(SSLBaseEnv):
                 np.cos(np.deg2rad(theta_offset + robot.theta)),
                 sign * robot.v_x / self.max_v,
                 sign * robot.v_y / self.max_v,
-                sign * robot.v_theta / self.max_w,
+                robot.v_theta / self.max_w,
             )
             for robot in my_robots.values()
         ]
@@ -165,7 +165,7 @@ class SSLDynamicRobots(SSLBaseEnv):
                 np.cos(np.deg2rad(theta_offset + robot.theta)),
                 sign * robot.v_x / self.max_v,
                 sign * robot.v_y / self.max_v,
-                sign * robot.v_theta / self.max_w,
+                robot.v_theta / self.max_w,
             )
             for robot in opp_robots.values()
         ]
