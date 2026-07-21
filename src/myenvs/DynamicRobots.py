@@ -96,7 +96,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.episode_steps = 0
         self.last_touch_x = None
 
-        self.opponent_policy = opponent_policy
+        self.opponent_policy = opponent_policy or RandomOpponentPolicy()
 
         self.field_scale = self.field.length / self.FIELD_REF_LENGTH
         # override SSLBaseEnv's motor-RPM max_v so command scaling and
@@ -127,53 +127,53 @@ class SSLDynamicRobots(SSLBaseEnv):
                              f"{sorted(self.DEFAULT_REWARD_WEIGHTS)}")
         self.reward_functions = {name: getattr(self, f"_reward_{name}") for name in self.reward_weights}
 
-    def _frame_to_observations(self):
-        ball = self.frame.ball
-        robots_blue = self.frame.robots_blue
-        robots_yellow = self.frame.robots_yellow
+    def _build_obs_for(self, my_robots, opp_robots, mirror: bool):
+        """mirror=True flips x and heading so the caller's team is always
+        'attacking toward +x', matching how the net was trained."""
+        sign = -1.0 if mirror else 1.0
         fl = self.field.length / 2
         fw = self.field.width / 2
+        ball = self.frame.ball
 
-        robots_blue = [
+        mine = [
             (
-                robot.x / fl,
+                sign * robot.x / fl,
                 robot.y / fw,
-                np.sin(np.deg2rad(robot.theta)),
-                np.cos(np.deg2rad(robot.theta)),
-                robot.v_x / self.max_v,
+                np.sin(np.deg2rad(180 * mirror + robot.theta)),
+                np.cos(np.deg2rad(180 * mirror + robot.theta)),
+                sign * robot.v_x / self.max_v,
                 robot.v_y / self.max_v,
                 robot.v_theta / self.max_w,
             )
-            for robot in robots_blue.values()
+            for robot in my_robots.values()
         ]
-        robots_yellow = [
+        opp = [
             (
-                robot.x / fl,
+                sign * robot.x / fl,
                 robot.y / fw,
-                np.sin(np.deg2rad(robot.theta)),
-                np.cos(np.deg2rad(robot.theta)),
-                robot.v_x / self.max_v,
+                np.sin(np.deg2rad(180 * mirror + robot.theta)),
+                np.cos(np.deg2rad(180 * mirror + robot.theta)),
+                sign * robot.v_x / self.max_v,
                 robot.v_y / self.max_v,
                 robot.v_theta / self.max_w,
             )
-            for robot in robots_yellow.values()
+            for robot in opp_robots.values()
         ]
+        obs = np.array([
+            sign * ball.x / fl,
+            ball.y / fw,
+            sign * ball.v_x / self.kick_speed,
+            ball.v_y / self.kick_speed,
+            *itertools.chain.from_iterable(mine),
+            *itertools.chain.from_iterable(opp),
+        ], dtype=np.float32)
 
-        obs = np.array(
-            [
-                ball.x / fl,
-                ball.y / fw,
-                ball.v_x / self.kick_speed,
-                ball.v_y / self.kick_speed,
-                # team robots
-                *itertools.chain.from_iterable(robots_blue),
-                # robots oponnents
-                *itertools.chain.from_iterable(robots_yellow),
-            ],
-            dtype=np.float32,
-        )
-        # Clip to values because physics can exceed the nominal bounds (e.g. through collisions)
         return np.clip(obs, -1.0, 1.0)
+
+    def _frame_to_observations(self):
+        return self._build_obs_for(my_robots=self.frame.robots_blue,
+                                   opp_robots=self.frame.robots_yellow,
+                                   mirror=False)
 
     def _get_commands(self, action):
         # actions shape: (num_robots_blue, 5) -- one row of 5 values per robot
@@ -201,7 +201,7 @@ class SSLDynamicRobots(SSLBaseEnv):
             )
 
         if self.n_robots_yellow > 0 and self.opponent_policy:
-            yellow_actions = self.opponent_policy.act(self.frame, self.n_robots_yellow)
+            yellow_actions = self.opponent_policy.act(self)
             for robot_id in range(self.n_robots_yellow):
                 robot_actions = yellow_actions[robot_id]
                 angle_rad = np.deg2rad(self.frame.robots_yellow[robot_id].theta)
