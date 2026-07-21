@@ -5,9 +5,11 @@ from rsoccer_gym.Render import SSLRenderField
 from rsoccer_gym.ssl.ssl_gym_base import SSLBaseEnv
 import rsoccer_gym.Render.ball as render_ball
 import itertools
-from typing import TypeAlias
+from typing import TypeAlias, Protocol, Optional
+from agent import Agent
 
 from config import Area
+from .Opponent import OpponentPolicy, RandomOpponentPolicy
 
 render_ball.Ball.radius = 0.04  # 7x bigger for visibility
 
@@ -65,8 +67,9 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick": 0.1, "goal": 100.0}
 
-    AreaTuple = dict[str, tuple[float, float]]
 
+
+    AreaTuple = dict[str, tuple[float, float]]
     def __init__(self, render_mode=None,
                  field_type=1,
                  n_robots_blue=2,
@@ -74,7 +77,8 @@ class SSLDynamicRobots(SSLBaseEnv):
                  rewards=None,
                  allowed_positions_blue: AreaTuple = dict(),
                  allowed_positions_yellow: AreaTuple = dict(),
-                 allowed_positions_ball: AreaTuple = dict()):
+                 allowed_positions_ball: AreaTuple = dict(),
+                 opponent_policy: OpponentPolicy = None):
 
         super().__init__(
             field_type=field_type,  # 0=(12x9)field, 1=(9x6)field, 2=(6x4)field
@@ -91,6 +95,8 @@ class SSLDynamicRobots(SSLBaseEnv):
         )
         self.episode_steps = 0
         self.last_touch_x = None
+
+        self.opponent_policy = opponent_policy
 
         self.field_scale = self.field.length / self.FIELD_REF_LENGTH
         # override SSLBaseEnv's motor-RPM max_v so command scaling and
@@ -169,12 +175,12 @@ class SSLDynamicRobots(SSLBaseEnv):
         # Clip to values because physics can exceed the nominal bounds (e.g. through collisions)
         return np.clip(obs, -1.0, 1.0)
 
-    def _get_commands(self, actions):
+    def _get_commands(self, action):
         # actions shape: (num_robots_blue, 5) -- one row of 5 values per robot
         commands = []
 
         for robot_id in range(self.n_robots_blue):
-            robot_actions = actions[robot_id]
+            robot_actions = action[robot_id]
             angle_rad = np.deg2rad(self.frame.robots_blue[robot_id].theta)
 
             v_x = robot_actions[0] * self.max_v
@@ -193,6 +199,23 @@ class SSLDynamicRobots(SSLBaseEnv):
                     dribbler=robot_actions[4] > 0,
                 )
             )
+
+        if self.n_robots_yellow > 0 and self.opponent_policy:
+            yellow_actions = self.opponent_policy.act(self.frame, self.n_robots_yellow)
+            for robot_id in range(self.n_robots_yellow):
+                robot_actions = yellow_actions[robot_id]
+                angle_rad = np.deg2rad(self.frame.robots_yellow[robot_id].theta)
+                v_x = robot_actions[0] * self.max_v
+                v_y = robot_actions[1] * self.max_v
+                v_x_local = v_x * np.cos(angle_rad) + v_y * np.sin(angle_rad)
+                v_y_local = -v_x * np.sin(angle_rad) + v_y * np.cos(angle_rad)
+                commands.append(Robot(
+                    yellow=True, id=robot_id,
+                    v_x=v_x_local, v_y=v_y_local,
+                    v_theta=robot_actions[2] * self.MAX_W,
+                    kick_v_x=self.kick_speed if robot_actions[3] > 0 else 0.0,
+                    dribbler=robot_actions[4] > 0,
+                ))
         return commands
 
     def _calculate_reward_and_done(self):
@@ -254,9 +277,10 @@ class SSLDynamicRobots(SSLBaseEnv):
         if self.last_frame is None:
             return 0.0
 
+        #TODO: !!! ball positions go from -1 to 1 normalize them from 0 to 1
         ball = self.frame.ball
         last_ball = self.last_frame.ball
-        goal_x = self.field.length / 2
+        goal_x = self.field.length / 2 #TODO: what is goal x?
         current_dist = np.linalg.norm([goal_x - ball.x, ball.y])
         last_dist = np.linalg.norm([goal_x - last_ball.x, last_ball.y])
         return (last_dist - current_dist) / (self.kick_speed * self.time_step)
