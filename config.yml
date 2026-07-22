@@ -21,6 +21,19 @@ stages:
         kick: 0.1
         goal_close: 100 # goal or goal_close do not change anything when ball spawns close to goal
 
+stages:
+  - name: "1vs0random"
+    <<: *defaults
+    environment:
+      n_robots_blue: 1
+      n_robots_yellow: 0
+      rewards:
+        # reward name: weight; each reward is normalized to [-1, 1] per step, # so weights are directly comparable (goal is a one-time event bonus)
+        proximity: 0.1
+        progress: 0.8
+        kick: 0.1
+        goal_close: 100 # goal or goal_close do not change anything when ball spawns close to goal
+
   - name: "2vs0"
     <<: *defaults
     environment:
