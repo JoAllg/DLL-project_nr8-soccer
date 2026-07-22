@@ -27,6 +27,7 @@ class Environment(BaseModel):
 
     # string resolved to to <Name>OpponentPolicy options <agent> <random>
     opponent_strategy: Optional[str] = None
+    opponent_model: Optional[str] = None # if strategy =="Agent" this model is loaded
 
     allowed_positions_blue: Area = Area()
     allowed_positions_yellow: Area = Area()

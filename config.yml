@@ -74,3 +74,28 @@ stages:
         progress: 0.8
         kick: 0.1
         goal_close: 100
+
+  - name: "2vs2opponent"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Agent"
+      opponent_model: "models/config_stage2_2vs2_v1.cleanrl_model"
+      allowed_positions_ball:
+        # somewhere on the right before the goal
+        min: [-0.9, -.6]
+        max: [ -0.6, 0.6]
+      # teammates somewhere in the oponents half
+      allowed_positions_yellow:
+        min: [-0.8, -1]
+        max: [ 0, 1]
+      # position oponents somewhere before the goal
+      allowed_positions_blue:
+        min: [-0.9, -0.4]
+        max: [ -0.4, 0.4]
+      rewards:
+        proximity: 0.1
+        progress: 0.8
+        kick: 0.1
+        goal_close: 100
