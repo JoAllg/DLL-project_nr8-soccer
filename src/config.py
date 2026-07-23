@@ -186,7 +186,7 @@ class Config(BaseModel):
     # Path to a .cleanrl_model checkpoint to load before the first training stage."""
     save_steps: int = 0
     # How often the model should be saved in between (0 -> only save at the end of a stage)"""
-    stage_selection: Optional[list[str]] = Field(default=None)
+    stage_name: Optional[list[str]] = Field(default=None)
 
     # this method run after the complete model is initialized
     def model_post_init(self, __context) -> None:

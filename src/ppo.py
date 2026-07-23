@@ -108,7 +108,7 @@ CLI_FIELDS: dict[str, str] = {
 
     # to be filled in runtime,
     "config": "path to yaml file providing configuration training stages and environments",
-    "stage_selection": "which stage of the config file should be executed. None: execute all stages in Order",
+    "stage_name": "which stage of the config file should be executed. None: execute all stages in Order",
     "load_model": "Path to a .cleanrl_model checkpoint to load before the first training stage.",
     "save_steps": "How often the model should be saved in between (0 -> only save at the end)",
 }
@@ -448,8 +448,8 @@ if __name__ == "__main__":
     # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
 
     # select stages from config
-    if config.stage_selection:
-        stage_ids = config.get_stages_from_name(config.stage_selection)
+    if config.stage_name:
+        stage_ids = config.get_stages_from_name(config.stage_name)
 
     # calculate total_timesteps
     steps = sum(s.steps if s.steps is not None else config.num_envs for s in config.stages)
@@ -496,7 +496,7 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: seeding
     utils.set_seed(config.seed, config.torch_deterministic)
 
-    stage_ids = config.get_stages_from_name(config.stage_selection)
+    stage_ids = config.get_stages_from_name(config.stage_name)
 
     agent = None
     agent_opponent = None
