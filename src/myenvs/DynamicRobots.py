@@ -134,6 +134,12 @@ class SSLDynamicRobots(SSLBaseEnv):
     def set_opponent_agent(self, agent: Agent):
         self.opponent_policy = AgentOpponentPolicy(agent)
 
+    def reset(self, *, seed=None, options=None):
+        # reset per-episode opponent state (e.g. OU process)
+        if self.opponent_policy is not None and hasattr(self.opponent_policy, "reset"):
+            self.opponent_policy.reset()
+        return super().reset(seed=seed, options=options)
+
     def _build_obs_for(self, my_robots, opp_robots, mirror: bool):
         """mirror=True flips x and heading so the caller's team is always
         'attacking toward +x', matching how the net was trained."""
