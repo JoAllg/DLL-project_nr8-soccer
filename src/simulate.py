@@ -34,8 +34,8 @@ from ppo import make_env  # reuse the exact same env-building logic as training
 
 @dataclass
 class SimArgs:
-    model_path: str
-    """path to the .cleanrl_model checkpoint to load"""
+    model_path: Optional[str] = None
+    """path to the .cleanrl_model checkpoint to load; if omitted, blue robots stay static"""
     config: str = "config.yml"
     """path to the yaml config used during training (for env args + architecture hyperparams)"""
     stage_name: Optional[str] = None
@@ -108,14 +108,17 @@ def main():
         )
     env = gym.vector.SyncVectorEnv([env_fn])  # Agent expects a vectorized env interface
 
-    agent = Agent(
-        env, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
-        n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
-        dropout=config.dropout, critic_pooling=config.critic_pooling,
-    ).to(device)
-    agent.load_state_dict(torch.load(args.model_path, map_location=device))
-    agent.eval()  # disable dropout etc. — important even though dropout=0.0 by default
-    agent.set_env(env)
+    # no model_path -> blue robots stay static (zero action); useful to test opponents alone
+    agent = None
+    if args.model_path is not None:
+        agent = Agent(
+            env, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
+            n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
+            dropout=config.dropout, critic_pooling=config.critic_pooling,
+        ).to(device)
+        agent.load_state_dict(torch.load(args.model_path, map_location=device))
+        agent.eval()  # disable dropout etc. — important even though dropout=0.0 by default
+        agent.set_env(env)
 
 # opponent agent — same story, needs env too, and env needed a placeholder
 # opponent policy already in place before this point (built during gym.make)
@@ -139,20 +142,24 @@ def main():
         while not done:
             step_start = time.time()
 
-            with torch.no_grad():
-                # NOTE: check your Agent's actual signature — if
-                # get_action_and_value doesn't support a `deterministic` /
-                # `action=None` mode that returns the policy mean instead of
-                # a sample, either add that option to Agent, or fall back to
-                # stochastic sampling (still informative, just noisier).
-                if args.deterministic and hasattr(agent, "get_action_and_value"):
-                    try:
-                        action, _, _, _ = agent.get_action_and_value(obs, deterministic=True)
-                    except TypeError:
-                        # Agent doesn't support a deterministic flag — fall back
+            if agent is None:
+                # no blue policy -> zero action keeps blue robots static
+                action = torch.zeros(env.action_space.shape, device=device)
+            else:
+                with torch.no_grad():
+                    # NOTE: check your Agent's actual signature — if
+                    # get_action_and_value doesn't support a `deterministic` /
+                    # `action=None` mode that returns the policy mean instead of
+                    # a sample, either add that option to Agent, or fall back to
+                    # stochastic sampling (still informative, just noisier).
+                    if args.deterministic and hasattr(agent, "get_action_and_value"):
+                        try:
+                            action, _, _, _ = agent.get_action_and_value(obs, deterministic=True)
+                        except TypeError:
+                            # Agent doesn't support a deterministic flag — fall back
+                            action, _, _, _ = agent.get_action_and_value(obs)
+                    else:
                         action, _, _, _ = agent.get_action_and_value(obs)
-                else:
-                    action, _, _, _ = agent.get_action_and_value(obs)
 
             obs, reward, terminations, truncations, infos = env.step(action.cpu().numpy())
             obs = torch.Tensor(obs).to(device)
