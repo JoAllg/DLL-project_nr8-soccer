@@ -67,7 +67,7 @@ stages:
       allowed_positions_blue:
         <<: *right_third
       rewards:
-        <<: *standard_rw
+        <<: *solo_rw
 
   - name: "1vs0random"
     <<: *defaults
@@ -75,7 +75,7 @@ stages:
       n_robots_blue: 1
       n_robots_yellow: 0
       rewards:
-        <<: *standard_rw
+        <<: *solo_rw
 
   - name: "2vs0"
     <<: *defaults
@@ -87,7 +87,7 @@ stages:
       allowed_positions_blue:
         <<: *right_third
       rewards:
-        <<: *standard_rw
+        <<: *solo_rw
         # TODO: reduce goal_close for teamwork
 
   - name: "2vs2random"
@@ -97,7 +97,7 @@ stages:
       n_robots_yellow: 2
       # spawn everything random on the field
       rewards:
-        <<: *standard_rw
+        <<: *solo_rw
 
   - name: "2vs2"
     <<: *defaults
@@ -112,7 +112,7 @@ stages:
       allowed_positions_yellow:
         <<: *yellow_before_goal
       rewards:
-        <<: *standard_rw
+        <<: *solo_rw
 
   - name: "2vs2ou"
     <<: *defaults
@@ -127,7 +127,7 @@ stages:
       allowed_positions_yellow:
         <<: *yellow_half
       rewards:
-        <<: *standard_rw
+        <<: *solo_rw
 
   - name: "2vs2block"
     <<: *defaults
@@ -142,7 +142,7 @@ stages:
       allowed_positions_yellow:
         <<: *yellow_before_goal
       rewards:
-        <<: *standard_rw
+        <<: *solo_rw
 
   - name: "2vs2opponent"
     <<: *defaults
@@ -158,4 +158,4 @@ stages:
       allowed_positions_yellow:
         <<: *blue_half
       rewards:
-        <<: *standard_rw
+        <<: *solo_rw
