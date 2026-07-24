@@ -181,12 +181,17 @@ class Config(BaseModel):
     num_iterations: int = 0
     # the number of iterations (computed in runtime)"""
     config: str = "config.yml"
-    # which stage of the config file should be executed. None: execute all stages in Order 
+    # which stage of the config file should be executed. None: execute all stages in Order
     load_model: Optional[str] = None
     # Path to a .cleanrl_model checkpoint to load before the first training stage."""
     save_steps: int = 0
     # How often the model should be saved in between (0 -> only save at the end of a stage)"""
     stage_name: Optional[list[str]] = Field(default=None)
+
+    position_templates: dict[str, Area] = Field(default_factory=dict)
+    # Reusable position templates (Area) for robot/ball spawn definitions"""
+    reward_templates: dict[str, dict[str, float]] = Field(default_factory=dict)
+    # Reusable reward-weight templates for environment.rewards"""
 
     # this method run after the complete model is initialized
     def model_post_init(self, __context) -> None:
