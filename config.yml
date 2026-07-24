@@ -90,6 +90,21 @@ stages:
         <<: *solo_rw
         # TODO: reduce goal_close for teamwork
 
+  - name: "2vs0game"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      # Startpositions similar to a normal game
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *solo_rw
+
   - name: "2vs2random"
     <<: *defaults
     environment:
