@@ -106,11 +106,11 @@ stages:
       n_robots_yellow: 2
       opponent_strategy: "Random"
       allowed_positions_ball:
-        <<: *ball_right_before_goal
+        <<: *ball_middle
       allowed_positions_blue:
-        <<: *blue_opponents_half
+        <<: *blue_half
       allowed_positions_yellow:
-        <<: *yellow_before_goal
+        <<: *yellow_half
       rewards:
         <<: *solo_rw
 
@@ -136,11 +136,11 @@ stages:
       n_robots_yellow: 5
       opponent_strategy: "Block"
       allowed_positions_ball:
-        <<: *ball_right_before_goal
+        <<: *ball_middle
       allowed_positions_blue:
-        <<: *blue_opponents_half
+        <<: *blue_half
       allowed_positions_yellow:
-        <<: *yellow_before_goal
+        <<: *yellow_half
       rewards:
         <<: *solo_rw
 
@@ -152,10 +152,10 @@ stages:
       opponent_strategy: "Agent"
       opponent_model: "models/config_stage2_2vs2_v1.cleanrl_model"
       allowed_positions_ball:
-        <<: *ball_left_before_goal
+        <<: *ball_middle
       allowed_positions_blue:
         <<: *blue_half
       allowed_positions_yellow:
-        <<: *blue_half
+        <<: *yellow_half
       rewards:
         <<: *solo_rw
