@@ -67,7 +67,7 @@ stages:
       allowed_positions_blue:
         <<: *right_third
       rewards:
-        <<: *solo_rw
+        <<: *standard_rw
 
   - name: "1vs0random"
     <<: *defaults
@@ -75,7 +75,7 @@ stages:
       n_robots_blue: 1
       n_robots_yellow: 0
       rewards:
-        <<: *solo_rw
+        <<: *standard_rw
 
   - name: "2vs0"
     <<: *defaults
