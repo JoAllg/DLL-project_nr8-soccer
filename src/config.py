@@ -123,7 +123,7 @@ class Config(BaseModel):
     # Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
     warmup_ratio: float = 0.01
     # fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
-    min_lr_ratio: float = 0.1
+    min_lr_ratio: float = 0.01
     # the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
     num_cycles: int = 1
     # number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
