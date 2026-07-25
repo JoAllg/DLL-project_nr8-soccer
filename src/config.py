@@ -117,17 +117,17 @@ class Config(BaseModel):
     # the number of mini-batches"""
     update_epochs: int = 3
     # the K epochs to update the policy"""
-    learning_rate: float = 3e-4
+    learning_rate: float = 3e-3
     # the learning rate of the optimizer"""
     anneal_lr: bool = True
     # Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
     warmup_ratio: float = 0.01
     # fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
-    min_lr_ratio: float = 1e-8
+    min_lr_ratio: float = 0.5
     # the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
     num_cycles: int = 1
     # number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
-    cycle_decay: float = 0.5
+    cycle_decay: float = 0.25
     # peak-LR multiplier applied at each LR restart (0.5 halves the max LR every cycle); 1.0 = no decay"""
     weight_decay: float = 0.01
     # AdamW weight decay (applied to matrix weights only, see optimizer setup)"""
