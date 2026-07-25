@@ -52,7 +52,7 @@ class SSLDynamicRobots(SSLBaseEnv):
     # Speeds anchored to real soccer: a fast pro covers the 105 m pitch in ~12 s
     # and a hard shot (~120 km/h) is ~3.8x that average run speed
     FIELD_CROSS_TIME = 12.0  # s, goal-to-goal sprint at real-player pace
-    KICK_SPEED_FACTOR = 3.4  # kicked ball speed / player run speed
+    KICK_SPEED_FACTOR = 3.8  # kicked ball speed / player run speed
     MAX_W = 10.0  # rad/s
 
     # Field-size scaling: spawn distances below were tuned on the 12 m
@@ -316,6 +316,27 @@ class SSLDynamicRobots(SSLBaseEnv):
         return (last_dist - current_dist) / (self.kick_speed * self.time_step)
 
     def _reward_kick(self):
+        """Fires the step a kick happens with any forward (+x) component.
+
+        Detects a kick as a sudden ball-speed jump (beyond drive/dribble acceleration),
+        then returns 1.0 if the impulse advances the ball in +x, else 0.0.
+
+        Independent of angle and kick strength.
+        """
+        if self.last_frame is None:
+            return 0.0
+        ball = self.frame.ball
+        last = self.last_frame.ball
+        dvx = ball.v_x - last.v_x
+        dvy = ball.v_y - last.v_y
+        dv = np.hypot(dvx, dvy)  # hypotenuse / total speed of the ball
+
+        # ball speed above robot speed (dribbling) is a kick impulse
+        if dv < self.max_v:
+            return 0.0
+        return 1.0 if dvx > 0 else 0.0
+
+    def _reward_kick_velocity(self):
         """Ball kick velocity toward the goal (x-axis),
         normalized by kick_speed (to [0, 1], negative reward is handled by reward_progress).
 
@@ -344,6 +365,20 @@ class SSLDynamicRobots(SSLBaseEnv):
         attacking_third_x = goal_x - self.field.length / 3
         touched_in_front = self.last_touch_x is not None and self.last_touch_x > attacking_third_x
         return 1.0 if touched_in_front else 0.0
+
+    def _reward_out_of_bounds(self):
+        """-1.0 when the ball leaves the playing field, else 0.0.
+
+        Actual goals are exempt so scoring is not penalized.
+        """
+        ball = self.frame.ball
+        half_length = self.field.length / 2
+        half_width = self.field.width / 2
+        in_goal = ball.x > half_length and abs(ball.y) < self.field.goal_width / 2
+        if in_goal:
+            return 0.0
+        out = abs(ball.x) > half_length or abs(ball.y) > half_width
+        return -1.0 if out else 0.0
 
     def _get_initial_positions_frame(self):
         self.episode_steps = 0
