@@ -41,6 +41,7 @@ position_templates:
 # progress: ball progress towards goal
 # kick: robot kicks ball in x-direction
 # kick_velocity: ball kick-velocity reward (discontinoud)
+# dribble: teammate keeps ball at dribbler (possession; dense, use small weight)
 # goal: goal scored
 # goal_close: goal scored if shot from the last third of the playing field
 # out_of_bounds: ball left the playing field (penalty; use a positive weight, value already negative)
@@ -56,6 +57,7 @@ reward_templates:
     proximity: 0.1
     progress: 1.0
     kick: 0.5
+    dribble: 0.05
     goal_close: 100
     out_of_bounds: 0.5
 

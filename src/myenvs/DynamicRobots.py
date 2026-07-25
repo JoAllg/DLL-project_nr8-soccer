@@ -380,6 +380,15 @@ class SSLDynamicRobots(SSLBaseEnv):
         out = abs(ball.x) > half_length or abs(ball.y) > half_width
         return -1.0 if out else 0.0
 
+    def _reward_dribble(self):
+        """1.0 while a teammate keeps the ball at its dribbler (infrared
+        contact), else 0.0.
+
+        Should be set to a very small factor in the total rewards.
+
+        """
+        return 1.0 if any(robot.infrared for robot in self.frame.robots_blue.values()) else 0.0
+
     def _get_initial_positions_frame(self):
         self.episode_steps = 0
         self.last_touch_x = None
