@@ -63,7 +63,7 @@ reward_templates:
     spacing: 0.1
     pass: 0.1
     goal_close: 100
-    out_of_bounds: 0.5
+    out_of_bounds: 0.1
 
   # "Annealed" late-stage variant of `solo`
   reduced: &reduced_rw
@@ -74,8 +74,14 @@ reward_templates:
     spacing: 0.1 # full
     pass: 0.1 # full
     goal_close: 100   # full
-    out_of_bounds: 0.5  # full
+    out_of_bounds: 0.1  # full
 
+  passing: &passing_rw
+    kick: 0.5
+    dribble: 0.05
+    spacing: 0.1
+    pass: 1
+    out_of_bounds: 0.1
 
 stages:
   - name: "1vs0"
@@ -168,8 +174,8 @@ stages:
   - name: "2vs2block"
     <<: *defaults
     environment:
-      n_robots_blue: 1
-      n_robots_yellow: 5
+      n_robots_blue: 2
+      n_robots_yellow: 2
       opponent_strategy: "Block"
       allowed_positions_ball:
         <<: *ball_middle
@@ -195,3 +201,14 @@ stages:
         <<: *yellow_half
       rewards:
         <<: *solo_rw
+
+  - name: "3vs0passing"
+    <<: *defaults
+    environment:
+      n_robots_blue: 3
+      n_robots_yellow: 3
+      opponent_strategy: "Uhlstein"
+      allowed_positions_ball:
+        <<: *ball_middle
+      rewards:
+        <<: *passing_rw
