@@ -141,11 +141,9 @@ class Config(BaseModel):
     # the surrogate clipping coefficient"""
     clip_vloss: bool = True
     # Toggles whether or not to use a clipped loss for the value function, as per the paper."""
-    ent_coef: float = 0.01
+    ent_coef: float = 0.02
     # initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)"""
     # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
-    # a decaying entropy bonus buys exploration early (finding ball/goal at all)
-    # without keeping the policy noisy late in training
     final_ent_coef: float = 0.0
     # final entropy coefficient after linear annealing from ent_coef over total_timesteps"""
     vf_coef: float = 0.5
