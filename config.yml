@@ -65,6 +65,17 @@ reward_templates:
     goal_close: 100
     out_of_bounds: 0.5
 
+  # "Annealed" late-stage variant of `solo`
+  reduced: &reduced_rw
+    proximity: 0.02   # very small compared to &solo_rw
+    progress: 1.0     # full
+    kick: 0.1         # small
+    dribble: 0.005      # very small
+    spacing: 0.1 # full
+    pass: 0.1 # full
+    goal_close: 100   # full
+    out_of_bounds: 0.5  # full
+
 
 stages:
   - name: "1vs0"
