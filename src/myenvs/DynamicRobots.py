@@ -380,6 +380,22 @@ class SSLDynamicRobots(SSLBaseEnv):
         out = abs(ball.x) > half_length or abs(ball.y) > half_width
         return -1.0 if out else 0.0
 
+    def _reward_spacing(self):
+        """Crowding penalty: negative when blue robots get closer than d0.
+
+        Prevents robots clumping close and stacking on ball.
+        """
+        if self.n_robots_blue < 2:
+            return 0.0
+        d0 = 4.0 * self.field_scale  # min comfortable gap (m)
+        pos = [(r.x, r.y) for r in self.frame.robots_blue.values()]
+        n_pairs = self.n_robots_blue * (self.n_robots_blue - 1) / 2
+        pen = sum(
+            max(0.0, d0 - np.hypot(a[0] - b[0], a[1] - b[1])) # d0 - (dist between two robots)
+            for a, b in itertools.combinations(pos, 2) # ordered  cross-product without self-pairs
+        )
+        return -pen / (n_pairs * d0)
+
     def _reward_dribble(self):
         """1.0 while a teammate keeps the ball at its dribbler (infrared
         contact), else 0.0.
