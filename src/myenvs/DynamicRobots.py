@@ -52,7 +52,7 @@ class SSLDynamicRobots(SSLBaseEnv):
     # Speeds anchored to real soccer: a fast pro covers the 105 m pitch in ~12 s
     # and a hard shot (~120 km/h) is ~3.8x that average run speed
     FIELD_CROSS_TIME = 12.0  # s, goal-to-goal sprint at real-player pace
-    KICK_SPEED_FACTOR = 3.8  # kicked ball speed / player run speed
+    KICK_SPEED_FACTOR = 3.4  # kicked ball speed / player run speed
     MAX_W = 10.0  # rad/s
 
     # Field-size scaling: spawn distances below were tuned on the 12 m
@@ -211,7 +211,7 @@ class SSLDynamicRobots(SSLBaseEnv):
                     v_x=v_x_local,
                     v_y=v_y_local,
                     v_theta=robot_actions[2] * self.MAX_W,
-                    kick_v_x=self.kick_speed if robot_actions[3] > 0 else 0.0,
+                    kick_v_x=self.kick_speed * max(0.0, robot_actions[3]),
                     dribbler=robot_actions[4] > 0,
                 )
             )
@@ -229,7 +229,7 @@ class SSLDynamicRobots(SSLBaseEnv):
                     yellow=True, id=robot_id,
                     v_x=v_x_local, v_y=v_y_local,
                     v_theta=robot_actions[2] * self.MAX_W,
-                    kick_v_x=self.kick_speed if robot_actions[3] > 0 else 0.0,
+                    kick_v_x=self.kick_speed * max(0.0, robot_actions[3]),
                     dribbler=robot_actions[4] > 0,
                 ))
         return commands
