@@ -137,11 +137,11 @@ class Config(BaseModel):
     # the lambda for the general advantage estimation"""
     norm_adv: bool = True
     # Toggles advantages normalization"""
-    clip_coef: float = 0.1
+    clip_coef: float = 0.2
     # the surrogate clipping coefficient"""
     clip_vloss: bool = True
     # Toggles whether or not to use a clipped loss for the value function, as per the paper."""
-    ent_coef: float = 0.02
+    ent_coef: float = 0.01
     # initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)"""
     # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
     final_ent_coef: float = 0.0
