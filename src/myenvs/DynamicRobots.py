@@ -98,6 +98,8 @@ class SSLDynamicRobots(SSLBaseEnv):
         )
         self.episode_steps = 0
         self.last_touch_x = None
+        self.last_touch_id = None
+        self.last_touch_pos = None
 
         self.opponent_policy = None
         if opponent_strategy:
@@ -265,9 +267,17 @@ class SSLDynamicRobots(SSLBaseEnv):
         )  # goal ends the episode even when its reward weight is not configured
 
     def _update_ball_touch(self):
-        """Track the ball's x-position at the last teammate touch (infrared/dribbler contact)."""
-        if any(robot.infrared for robot in self.frame.robots_blue.values()):
-            self.last_touch_x = self.frame.ball.x
+        """Track which teammate last touched the ball and where (infrared/dribbler contact).
+
+        last_touch_id / last_touch_pos identify the passer for _reward_pass;
+        last_touch_x feeds _reward_goal_close.
+        """
+        for rid, robot in self.frame.robots_blue.items():
+            if robot.infrared:
+                self.last_touch_id = rid
+                self.last_touch_x = self.frame.ball.x
+                self.last_touch_pos = np.array([self.frame.ball.x, self.frame.ball.y])
+                break
 
     ### REWARD DEFINITIONS
     ### should be in [-1, 1]!
@@ -387,7 +397,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         """
         if self.n_robots_blue < 2:
             return 0.0
-        d0 = 4.0 * self.field_scale  # min comfortable gap (m)
+        d0 = 2.0 * self.field_scale  # min comfortable gap (m)
         pos = [(r.x, r.y) for r in self.frame.robots_blue.values()]
         n_pairs = self.n_robots_blue * (self.n_robots_blue - 1) / 2
         pen = sum(
@@ -395,6 +405,42 @@ class SSLDynamicRobots(SSLBaseEnv):
             for a, b in itertools.combinations(pos, 2) # ordered  cross-product without self-pairs
         )
         return -pen / (n_pairs * d0)
+
+    def _reward_pass(self):
+        """1.0 the step a passed ball arrives close to a teammate, else 0.0.
+
+        Adapted from rSoccer SSLPassEnduranceEnv
+        (rSoccer/rsoccer_gym/ssl/ssl_hw_challenge/pass_endurance.py,
+        _calculate_reward_and_done)
+        Adaptions:
+        - no fixed roles/ids of robots
+        - Reception = proximity, not dribbling.
+        - d_min minimal ball travel distance
+        """
+        if self.n_robots_blue < 2 or self.last_frame is None or self.last_touch_id is None:
+            return 0.0
+        if self.last_touch_pos is None:
+            return 0.0
+
+        d_min = 2.0 * self.field_scale  # min pass length to count (m) (should be same as minimum distance in distance reward)
+        recv_radius = 0.25 * self.field_scale  # catch radius (we don't expect the robot to dribble with the ball directly)
+
+        ball = np.array([self.frame.ball.x, self.frame.ball.y])
+        last_ball = np.array([self.last_frame.ball.x, self.last_frame.ball.y])
+
+        # kick/pass must carry ball aways from passer for at least d_min
+        if np.linalg.norm(ball - self.last_touch_pos) <= d_min:
+            return 0.0
+
+        for id, robot in self.frame.robots_blue.items():
+            if id == self.last_touch_id:
+                continue  # passer can not pass to itself
+            pos = np.array([robot.x, robot.y])
+            now_near = np.linalg.norm(ball - pos) <= recv_radius
+            was_near = np.linalg.norm(last_ball - pos) <= recv_radius
+            if now_near and not was_near:  # ball was not near to the robot that accepts the ball
+                return 1.0
+        return 0.0
 
     def _reward_dribble(self):
         """1.0 while a teammate keeps the ball at its dribbler (infrared
@@ -408,6 +454,8 @@ class SSLDynamicRobots(SSLBaseEnv):
     def _get_initial_positions_frame(self):
         self.episode_steps = 0
         self.last_touch_x = None
+        self.last_touch_id = None
+        self.last_touch_pos = None
         pos_frame = Frame()
 
         goal_buffer = 1.0 * self.field_scale

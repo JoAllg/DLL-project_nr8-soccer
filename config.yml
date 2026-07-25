@@ -43,6 +43,7 @@ position_templates:
 # kick_velocity: ball kick-velocity reward (discontinoud)
 # dribble: teammate keeps ball at dribbler (use small weight)
 # spacing: crowding penalty when blue robots clump close
+# pass: pulse when a passed ball reaches a different teammate (0 for solo; small weight)
 # goal: goal scored
 # goal_close: goal scored if shot from the last third of the playing field
 # out_of_bounds: ball left the playing field (penalty; use a positive weight, value already negative)
@@ -59,9 +60,11 @@ reward_templates:
     progress: 1.0
     kick: 0.5
     dribble: 0.05
+    spacing: 0.1
+    pass: 0.1
     goal_close: 100
     out_of_bounds: 0.5
-    spacing: 0.1  # inert for solo (n<2); repels clumping in 2+ robot stages
+
 
 stages:
   - name: "1vs0"
