@@ -65,7 +65,7 @@ class BlockOpponentPolicy:
         self,
         num_blockers: int = 2,
         block_frac: float = 0.4,
-        approach_dist: float = 0.2,
+        approach_dist: float = 0.7,
         speed_scale: float = 0.3,
     ):
         self.num_blockers = num_blockers  # how many yellows to use blocking strategy
