@@ -29,5 +29,6 @@ rsoccer-gym = { git = "https://github.com/robocin/rSoccer.git" }
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.9",
+    "matplotlib>=3.10.9",
     "ruff>=0.15.20",
 ]
