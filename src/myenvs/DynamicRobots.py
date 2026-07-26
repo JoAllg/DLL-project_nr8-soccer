@@ -19,8 +19,6 @@ class SimFieldRenderField(SSLRenderField):
     params instead of the hardcoded 9x6 Division-B constants."""
 
     def __init__(self, field):
-        # instance attrs shadow the class constants before
-        # VSSRenderField.__init__ scales them and sizes the window
         self.length = field.length
         self.width = field.width
         self.penalty_length = field.penalty_length
@@ -32,8 +30,8 @@ class SimFieldRenderField(SSLRenderField):
 
 class SSLDynamicRobots(SSLBaseEnv):
     """
-    SSL Environment with dynamic number of Teammates and oponnents.
-    Goal learn to kick the ball into the oponnents goal.
+    SSL Environment with dynamic number of Teammates and opponents.
+    Goal: learn to kick the ball into the opponents' goal.
 
     Observation space: [ball_x, ball_y, ball_vx, ball_vy,
                     robot_x, robot_y, sin(θ), cos(θ), robot_vx, robot_vy, robot_vθ]
@@ -45,45 +43,37 @@ class SSLDynamicRobots(SSLBaseEnv):
         Available names: see _reward_* methods
     """
 
-    # Values to modify: episode length and player/ball speed-up
-    max_steps = 1000  # episode limit (25 s at 0.025 s/step)
-    speed_up = 1.5  # multiplier on both robot and ball speed vs. realistic pace
+    max_steps = 1000
+    speed_up = 1.5
 
-    # Speeds anchored to real soccer: a fast pro covers the 105 m pitch in ~12 s
-    # and a hard shot (~120 km/h) is ~3.8x that average run speed
-    FIELD_CROSS_TIME = 12.0  # s, goal-to-goal sprint at real-player pace
-    KICK_SPEED_FACTOR = 3.8  # kicked ball speed / player run speed
-    MAX_W = 10.0  # rad/s
+    FIELD_CROSS_TIME = 12.0
+    KICK_SPEED_FACTOR = 3.8
+    MAX_W = 10.0
+    FIELD_REF_LENGTH = 12.0
 
-    # Field-size scaling: spawn distances below were tuned on the 12 m
-    # Division-A field (field_type=0) and scale linearly with length
-    FIELD_REF_LENGTH = 12.0  # m
+    BALL_DIM = 4
+    TEAMMATE_DIM = 7
+    OPPONENT_DIM = 7
 
-    # Per-entity token feature widths (models.token_layout_from_env reads these);
-    # must match the segments _frame_to_observations() lays out below.
-    BALL_DIM = 4  # [x, y, vx, vy]
-    TEAMMATE_DIM = 7  # [x, y, sin(θ), cos(θ), vx, vy, vθ]
-    OPPONENT_DIM = 7  # [x, y, vx, vy, vθ] (no heading observed for opponents)
-
-    DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick": 0.1, "passing": 0.1, "goal": 100.0}
-
-
+    DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick_forward": 0.1, "goal": 100.0}
 
     AreaTuple = dict[str, tuple[float, float]]
-    def __init__(self, render_mode=None,
-                 field_type=1,
-                 n_robots_blue=2,
-                 n_robots_yellow=0,
-                 rewards=None,
-                 allowed_positions_blue: AreaTuple = dict(),
-                 allowed_positions_yellow: AreaTuple = dict(),
-                 allowed_positions_ball: AreaTuple = dict(),
-                 opponent_strategy: Optional[str] = None,
-                 opponent_model: Optional[str] = None):
-                 
 
+    def __init__(
+        self,
+        render_mode=None,
+        field_type=1,
+        n_robots_blue=2,
+        n_robots_yellow=0,
+        rewards=None,
+        allowed_positions_blue: AreaTuple = dict(),
+        allowed_positions_yellow: AreaTuple = dict(),
+        allowed_positions_ball: AreaTuple = dict(),
+        opponent_strategy: Optional[str] = None,
+        opponent_model: Optional[str] = None,
+    ):
         super().__init__(
-            field_type=field_type,  # 0=(12x9)field, 1=(9x6)field, 2=(6x4)field
+            field_type=field_type,
             n_robots_blue=n_robots_blue,
             n_robots_yellow=n_robots_yellow,
             time_step=0.025,
@@ -97,50 +87,48 @@ class SSLDynamicRobots(SSLBaseEnv):
         )
         self.episode_steps = 0
         self.last_touch_x = None
-        self.last_touch_robot_id = None   
-        self.last_touch_ball_pos = None  
-        self.last_pass_detected = False 
+        self.last_touch_id = None
+        self.last_touch_pos = None
+        self.last_touch_was_blue = False
 
-    
+        # Pass-to-shot tracking
+        self.steps_since_pass = 0
+        self.pass_pending_shot = False
+
         self.opponent_policy = None
-        if opponent_strategy: 
+        if opponent_strategy:
             self.opponent_policy = OPPONENT_POLICIES[opponent_strategy]()
 
         self.field_scale = self.field.length / self.FIELD_REF_LENGTH
-        # override SSLBaseEnv's motor-RPM max_v so command scaling and
-        # observation normalization use the same bound
         self.max_v = self.speed_up * self.field.length / self.FIELD_CROSS_TIME
-        # v_theta is in deg/s, convert MAX_W into same format
         self.max_w = np.rad2deg(self.MAX_W)
         self.kick_speed = self.KICK_SPEED_FACTOR * self.max_v
         self.max_steps = self.max_steps
 
-        # Render based on the field_types's size
         self.field_renderer = SimFieldRenderField(self.field)
         self.window_size = self.field_renderer.window_size
 
-        # dynamic parameters
         self.n_robots_yellow = n_robots_yellow
         self.n_robots_blue = n_robots_blue
 
         self.allowed_positions_blue = allowed_positions_blue
         self.allowed_positions_yellow = allowed_positions_yellow
         self.allowed_positions_ball = allowed_positions_ball
-          
 
-        # reward configuration: name -> weight, resolved to _reward_{name} methods
         self.reward_weights = dict(rewards if rewards is not None else self.DEFAULT_REWARD_WEIGHTS)
-        unknown = [name for name in self.reward_weights if not callable(getattr(self, f"_reward_{name}", None))]
+        unknown = [
+            name for name in self.reward_weights if not callable(getattr(self, f"_reward_{name}", None))
+        ]
         if unknown:
-            raise ValueError(f"unknown reward names {unknown}, available: "
-                             f"{sorted(self.DEFAULT_REWARD_WEIGHTS)}")
+            raise ValueError(
+                f"unknown reward names {unknown}, available: {sorted(self.DEFAULT_REWARD_WEIGHTS)}"
+            )
         self.reward_functions = {name: getattr(self, f"_reward_{name}") for name in self.reward_weights}
 
     def set_opponent_agent(self, agent: Agent):
         self.opponent_policy = AgentOpponentPolicy(agent)
 
     def reset(self, *, seed=None, options=None):
-        # reset per-episode opponent state (e.g. OU process)
         if self.opponent_policy is not None and hasattr(self.opponent_policy, "reset"):
             self.opponent_policy.reset()
         return super().reset(seed=seed, options=options)
@@ -153,7 +141,6 @@ class SSLDynamicRobots(SSLBaseEnv):
         fw = self.field.width / 2
         ball = self.frame.ball
 
-        # TODO: understand why I don't need to turn 180 degreees
         theta_offset = 180 if mirror else 0.0
 
         mine = [
@@ -180,35 +167,33 @@ class SSLDynamicRobots(SSLBaseEnv):
             )
             for robot in opp_robots.values()
         ]
-        obs = np.array([
-            sign * ball.x / fl,
-            sign * ball.y / fw,
-            sign * ball.v_x / self.kick_speed,
-            sign * ball.v_y / self.kick_speed,
-            *itertools.chain.from_iterable(mine),
-            *itertools.chain.from_iterable(opp),
-        ], dtype=np.float32)
-
+        obs = np.array(
+            [
+                sign * ball.x / fl,
+                sign * ball.y / fw,
+                sign * ball.v_x / self.kick_speed,
+                sign * ball.v_y / self.kick_speed,
+                *itertools.chain.from_iterable(mine),
+                *itertools.chain.from_iterable(opp),
+            ],
+            dtype=np.float32,
+        )
         return np.clip(obs, -1.0, 1.0)
 
     def _frame_to_observations(self):
-        return self._build_obs_for(my_robots=self.frame.robots_blue,
-                                   opp_robots=self.frame.robots_yellow,
-                                   mirror=False)
+        return self._build_obs_for(
+            my_robots=self.frame.robots_blue, opp_robots=self.frame.robots_yellow, mirror=False
+        )
 
     def _get_commands(self, action):
-        # actions shape: (num_robots_blue, 5) -- one row of 5 values per robot
         commands = []
-
         for robot_id in range(self.n_robots_blue):
             robot_actions = action[robot_id]
             angle_rad = np.deg2rad(self.frame.robots_blue[robot_id].theta)
-
             v_x = robot_actions[0] * self.max_v
             v_y = robot_actions[1] * self.max_v
             v_x_local = v_x * np.cos(angle_rad) + v_y * np.sin(angle_rad)
             v_y_local = -v_x * np.sin(angle_rad) + v_y * np.cos(angle_rad)
-
             commands.append(
                 Robot(
                     yellow=False,
@@ -216,11 +201,10 @@ class SSLDynamicRobots(SSLBaseEnv):
                     v_x=v_x_local,
                     v_y=v_y_local,
                     v_theta=robot_actions[2] * self.MAX_W,
-                    kick_v_x=self.kick_speed if robot_actions[3] > 0 else 0.0,
+                    kick_v_x=self.kick_speed * max(0.0, robot_actions[3]),
                     dribbler=robot_actions[4] > 0,
                 )
             )
-
         if self.n_robots_yellow > 0 and self.opponent_policy:
             yellow_actions = self.opponent_policy.act(self)
             for robot_id in range(self.n_robots_yellow):
@@ -230,96 +214,124 @@ class SSLDynamicRobots(SSLBaseEnv):
                 v_y = robot_actions[1] * self.max_v
                 v_x_local = v_x * np.cos(angle_rad) + v_y * np.sin(angle_rad)
                 v_y_local = -v_x * np.sin(angle_rad) + v_y * np.cos(angle_rad)
-                commands.append(Robot(
-                    yellow=True, id=robot_id,
-                    v_x=v_x_local, v_y=v_y_local,
-                    v_theta=robot_actions[2] * self.MAX_W,
-                    kick_v_x=self.kick_speed if robot_actions[3] > 0 else 0.0,
-                    dribbler=robot_actions[4] > 0,
-                ))
+                commands.append(
+                    Robot(
+                        yellow=True,
+                        id=robot_id,
+                        v_x=v_x_local,
+                        v_y=v_y_local,
+                        v_theta=robot_actions[2] * self.MAX_W,
+                        kick_v_x=self.kick_speed * max(0.0, robot_actions[3]),
+                        dribbler=robot_actions[4] > 0,
+                    )
+                )
         return commands
 
     def _calculate_reward_and_done(self):
         self.episode_steps += 1
         self._update_ball_touch()
+        self._update_pass_shot_tracking()
         if self.episode_steps >= self.max_steps:
             self.episode_steps = 0
             return 0, True
 
-        # End episode if robot goes out of bounds
-        # if (abs(robot.x) > self.field.length / 2 or abs(robot.y) > self.field.width / 2):
-        #     self.episode_steps = 0
-        #     return -1, True
+        reward = sum(weight * self.reward_functions[name]() for name, weight in self.reward_weights.items())
+        return reward, self._reward_goal() > 0
 
-        reward = sum(weight * self.reward_functions[name]()
-                     for name, weight in self.reward_weights.items())
-        
-        return reward, self._reward_goal() > 0 # goal ends the episode even when its reward weight is not configured
-   
     def _update_ball_touch(self):
-        for robot_id, robot in self.frame.robots_blue.items():
+        """Track which teammate last touched the ball and where (infrared/dribbler contact).
+
+        last_touch_id / last_touch_pos identify the (blue) passer for _reward_pass;
+        last_touch_x feeds _reward_goal_close.
+        last_touch_was_blue identifies the team that last touched the ball.
+        """
+        for rid, robot in self.frame.robots_blue.items():
             if robot.infrared:
-                if (self.last_touch_robot_id is not None and self.last_touch_robot_id != robot_id and self.last_touch_ball_pos is not None):
-                    dist = np.linalg.norm([
-                    self.frame.ball.x - self.last_touch_ball_pos[0],
-                    self.frame.ball.y - self.last_touch_ball_pos[1]])
-                    if dist > 0.5 * self.field_scale:
-                        self.last_pass_detected = True
-                self.last_touch_robot_id = robot_id
-                self.last_touch_ball_pos = (self.frame.ball.x, self.frame.ball.y)
+                self.last_touch_id = rid
+                self.last_touch_x = self.frame.ball.x
+                self.last_touch_pos = np.array([self.frame.ball.x, self.frame.ball.y])
+                self.last_touch_was_blue = True
+                break
+        else:
+            if any(robot.infrared for robot in self.frame.robots_yellow.values()):
+                self.last_touch_was_blue = False
+
+    def _update_pass_shot_tracking(self):
+        """Track whether a shot follows a pass within a window of steps."""
+        if self.pass_pending_shot:
+            self.steps_since_pass += 1
+            if self.last_frame is not None:
+                dvx = self.frame.ball.v_x - self.last_frame.ball.v_x
+                dvy = self.frame.ball.v_y - self.last_frame.ball.v_y
+                if np.hypot(dvx, dvy) >= self.max_v:
+                    self.pass_pending_shot = False
+            if self.steps_since_pass > 15:
+                self.pass_pending_shot = False
 
     ### REWARD DEFINITIONS
     ### should be in [-1, 1]!
+
     def _reward_proximity(self):
         """Step progress of the closest robot toward the ball.
 
-        Only the closest robot to ball triggers the reward to avoid all robots trying to drive the ball
+        Only the closest robot to ball triggers the reward to avoid all robots trying to drive the ball.
         Bounded by max_v * time_step.
         """
         if self.last_frame is None:
             return 0.0
-
         ball = self.frame.ball
-        current_dist = []  # list of distances per robot id
+        current_dist = []
         last_dist = []
         closest_id = 0
         last_closest_dist = float("inf")
-
         for i, (current, last) in enumerate(
-                zip(self.frame.robots_blue.values(), self.last_frame.robots_blue.values())):
+            zip(self.frame.robots_blue.values(), self.last_frame.robots_blue.values())
+        ):
             current_dist.append(np.linalg.norm([current.x - ball.x, current.y - ball.y]))
             last_dist.append(np.linalg.norm([last.x - ball.x, last.y - ball.y]))
-
-            # which robot was the closest in the last frame
             if last_dist[i] < last_closest_dist:
                 closest_id = i
                 last_closest_dist = last_dist[i]
-
-        # reward if closest robot got closer
         delta = last_dist[closest_id] - current_dist[closest_id]
-        return delta / (self.max_v * self.time_step) # <= 1 (except for additional collisions)
+        return delta / (self.max_v * self.time_step)
 
     def _reward_progress(self):
-        """Ball progress toward the goal, (delta distance per step,
-        normalized by the max ball displacement kick_speed * time_step)."""
+        """Ball progress toward the goal, normalized by max ball displacement kick_speed * time_step."""
         if self.last_frame is None:
             return 0.0
-
-        #TODO: !!! ball positions go from -1 to 1 normalize them from 0 to 1
         ball = self.frame.ball
         last_ball = self.last_frame.ball
-        goal_x = self.field.length / 2 #TODO: what is goal x?
+        goal_x = self.field.length / 2
         current_dist = np.linalg.norm([goal_x - ball.x, ball.y])
         last_dist = np.linalg.norm([goal_x - last_ball.x, last_ball.y])
         return (last_dist - current_dist) / (self.kick_speed * self.time_step)
 
-    def _reward_kick(self):
-        """Ball kick velocity toward the goal (x-axis),
-        normalized by kick_speed (to [0, 1], negative reward is handled by reward_progress).
+    def _reward_kick_forward(self):
+        """Fires the step a kick happens with any forward (+x) component."""
+        if self.last_frame is None:
+            return 0.0
+        ball = self.frame.ball
+        last = self.last_frame.ball
+        dvx = ball.v_x - last.v_x
+        dvy = ball.v_y - last.v_y
+        dv = np.hypot(dvx, dvy)
+        if dv < self.max_v:
+            return 0.0
+        return 1.0 if dvx > 0 else 0.0
 
-        Reward kicking over dribbling (reward_progress)
-        """
-        # only kick speed is counted, dribbling speed returns 0. Bounded by kick_speed.
+    def _reward_kick(self):
+        """Fires for any kick in any direction."""
+        if self.last_frame is None:
+            return 0.0
+        ball = self.frame.ball
+        last = self.last_frame.ball
+        dvx = ball.v_x - last.v_x
+        dvy = ball.v_y - last.v_y
+        dv = np.hypot(dvx, dvy)
+        return 1.0 if dv >= self.max_v else 0.0
+
+    def _reward_kick_velocity(self):
+        """Ball kick velocity toward the goal (x-axis), normalized by kick_speed."""
         return max(0.0, (self.frame.ball.v_x - self.max_v) / (self.kick_speed - self.max_v))
 
     def _reward_goal(self):
@@ -330,10 +342,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         return 1.0 if in_goal else 0.0
 
     def _reward_goal_close(self):
-        """1.0 when the ball is in the goal AND was last touched inside the last third close to the goal.
-
-        Gives more focus to other rewards (game build-up) while the ball is farther away from the goal.
-        """
+        """1.0 when the ball is in the goal AND was last touched in the attacking third."""
         ball = self.frame.ball
         goal_x = self.field.length / 2
         in_goal = ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2
@@ -342,60 +351,176 @@ class SSLDynamicRobots(SSLBaseEnv):
         attacking_third_x = goal_x - self.field.length / 3
         touched_in_front = self.last_touch_x is not None and self.last_touch_x > attacking_third_x
         return 1.0 if touched_in_front else 0.0
-    
-    def _reward_passing(self):
-        if self.last_pass_detected:
-            self.last_pass_detected = False
+
+    def _reward_out_of_bounds(self):
+        """-1.0 when the ball leaves the field after a blue touch, else 0.0 (goals exempt)."""
+        if not self.last_touch_was_blue:
+            return 0.0
+        ball = self.frame.ball
+        half_length = self.field.length / 2
+        half_width = self.field.width / 2
+        in_goal = ball.x > half_length and abs(ball.y) < self.field.goal_width / 2
+        if in_goal:
+            return 0.0
+        out = abs(ball.x) > half_length or abs(ball.y) > half_width
+        return -1.0 if out else 0.0
+
+    def _reward_spacing(self):
+        """Crowding penalty when >1 blue robot stacks near the ball."""
+        if self.n_robots_blue < 2:
+            return 0.0
+        d0 = 2.0 * self.field_scale
+        ball = self.frame.ball
+        near = [
+            (r.x, r.y)
+            for r in self.frame.robots_blue.values()
+            if np.hypot(r.x - ball.x, r.y - ball.y) <= d0
+        ]
+        if len(near) < 2:
+            return 0.0
+        n_pairs = len(near) * (len(near) - 1) / 2
+        pen = sum(
+            max(0.0, d0 - np.hypot(a[0] - b[0], a[1] - b[1]))
+            for a, b in itertools.combinations(near, 2)
+        )
+        return -pen / (n_pairs * d0)
+
+    def _reward_pass(self):
+        """1.0 the step a passed ball arrives close to a teammate, else 0.0.
+
+        Adapted from rSoccer SSLPassEnduranceEnv.
+        """
+        if self.n_robots_blue < 2 or self.last_frame is None or self.last_touch_id is None:
+            return 0.0
+        if self.last_touch_pos is None:
+            return 0.0
+
+        d_min = 2.0 * self.field_scale
+        recv_radius = 0.25 * self.field_scale
+
+        ball = np.array([self.frame.ball.x, self.frame.ball.y])
+        last_ball = np.array([self.last_frame.ball.x, self.last_frame.ball.y])
+
+        if np.linalg.norm(ball - self.last_touch_pos) <= d_min:
+            return 0.0
+
+        for id, robot in self.frame.robots_blue.items():
+            if id == self.last_touch_id:
+                continue
+            pos = np.array([robot.x, robot.y])
+            now_near = np.linalg.norm(ball - pos) <= recv_radius
+            was_near = np.linalg.norm(last_ball - pos) <= recv_radius
+            if now_near and not was_near:
+                self.pass_pending_shot = True
+                self.steps_since_pass = 0
+                return 1.0
+        return 0.0
+
+    def _reward_pass_forward(self):
+        """Like _reward_pass but scales reward by how much the pass advanced the ball toward the goal.
+
+        A forward pass toward goal scores up to 1.0; a backward or sideways pass scores 0.0.
+        Encourages passes that build toward scoring, not just any pass between teammates.
+        """
+        if self.n_robots_blue < 2 or self.last_frame is None or self.last_touch_id is None:
+            return 0.0
+        if self.last_touch_pos is None:
+            return 0.0
+
+        d_min = 2.0 * self.field_scale
+        recv_radius = 0.25 * self.field_scale
+
+        ball = np.array([self.frame.ball.x, self.frame.ball.y])
+        last_ball = np.array([self.last_frame.ball.x, self.last_frame.ball.y])
+
+        if np.linalg.norm(ball - self.last_touch_pos) <= d_min:
+            return 0.0
+
+        for id, robot in self.frame.robots_blue.items():
+            if id == self.last_touch_id:
+                continue
+            pos = np.array([robot.x, robot.y])
+            now_near = np.linalg.norm(ball - pos) <= recv_radius
+            was_near = np.linalg.norm(last_ball - pos) <= recv_radius
+            if now_near and not was_near:
+                x_gain = ball[0] - self.last_touch_pos[0]
+                direction_score = np.clip(x_gain / self.field.length, 0.0, 1.0)
+                self.pass_pending_shot = True
+                self.steps_since_pass = 0
+                return direction_score
+        return 0.0
+
+    def _reward_spread(self):
+        """Reward robots for maintaining spatial separation from each other.
+
+        Good positioning enables passing lanes. Normalized by field diagonal.
+        Only active when n_robots_blue >= 2.
+        """
+        if self.n_robots_blue < 2:
+            return 0.0
+        positions = [np.array([r.x, r.y]) for r in self.frame.robots_blue.values()]
+        max_dist = max(
+            np.linalg.norm(positions[i] - positions[j])
+            for i in range(len(positions))
+            for j in range(i + 1, len(positions))
+        )
+        field_diagonal = np.hypot(self.field.length, self.field.width)
+        return np.clip(max_dist / field_diagonal, 0.0, 1.0)
+
+    def _reward_pass_to_shot(self):
+        """1.0 the step a forward shot is detected within 15 steps of a completed pass.
+
+        Rewards the full assist->shot sequence, encouraging deliberate team play
+        rather than just passing for its own sake.
+        """
+        if not self.pass_pending_shot or self.last_frame is None:
+            return 0.0
+        dvx = self.frame.ball.v_x - self.last_frame.ball.v_x
+        dvy = self.frame.ball.v_y - self.last_frame.ball.v_y
+        if np.hypot(dvx, dvy) >= self.max_v and dvx > 0:
+            self.pass_pending_shot = False
             return 1.0
         return 0.0
+
+    def _reward_dribble(self):
+        """1.0 while a teammate keeps the ball at its dribbler. Use a very small weight."""
+        return 1.0 if any(robot.infrared for robot in self.frame.robots_blue.values()) else 0.0
 
     def _get_initial_positions_frame(self):
         self.episode_steps = 0
         self.last_touch_x = None
-        self.last_touch_robot_id = None
-        self.last_touch_ball_pos = None
-        self.last_pass_detected = False
+        self.last_touch_id = None
+        self.last_touch_pos = None
+        self.last_touch_was_blue = False
+        self.steps_since_pass = 0
+        self.pass_pending_shot = False
         pos_frame = Frame()
-
-        goal_buffer = 1.0 * self.field_scale
-        window = 2.0 * self.field_scale
-        gap = 0.3
 
         half_length = self.field.length / 2
         half_width = self.field.width / 2
-        # Ball spawn position
+
         min_x, min_y = self.allowed_positions_ball["min"]
         max_x, max_y = self.allowed_positions_ball["max"]
         pos_frame.ball = Ball(
-            x=np.random.uniform(min_x * half_length,
-                                max_x * half_length),
-            y=np.random.uniform(min_y * half_width,
-                                max_y * half_width),
+            x=np.random.uniform(min_x * half_length, max_x * half_length),
+            y=np.random.uniform(min_y * half_width, max_y * half_width),
         )
 
-        # Spawn one robot per configured n_robots_blue
         for i in range(self.n_robots_blue):
             min_x, min_y = self.allowed_positions_blue["min"]
             max_x, max_y = self.allowed_positions_blue["max"]
-
             pos_frame.robots_blue[i] = Robot(
-                x=np.random.uniform(min_x * half_length,
-                                    max_x * half_length),
-                y=np.random.uniform(min_y * half_width,
-                                    max_y * half_width),
+                x=np.random.uniform(min_x * half_length, max_x * half_length),
+                y=np.random.uniform(min_y * half_width, max_y * half_width),
                 theta=np.random.uniform(0, 360),
             )
 
-        # Spawn one robot per configured n_robots_yellow (loop does nothing if 0)
         for i in range(self.n_robots_yellow):
             min_x, min_y = self.allowed_positions_yellow["min"]
             max_x, max_y = self.allowed_positions_yellow["max"]
-
             pos_frame.robots_yellow[i] = Robot(
-                x=np.random.uniform(min_x * half_length,
-                                    max_x * half_length),
-                y=np.random.uniform(min_y * half_width,
-                                    max_y * half_width),
+                x=np.random.uniform(min_x * half_length, max_x * half_length),
+                y=np.random.uniform(min_y * half_width, max_y * half_width),
                 theta=np.random.uniform(0, 360),
             )
 

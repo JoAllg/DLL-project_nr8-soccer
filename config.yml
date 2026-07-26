@@ -41,14 +41,17 @@ position_templates:
 # progress (ps*): ball progress towards goal
 # kick_forward (ps*): robot kicks ball with a forward (+x) component
 # kick (ps*): robot kicks ball in any direction (use for passing)
-# kick_velocity (ps*): ball kick-velocity (forward direction) reward (discontinoud)
+# kick_velocity (ps*): ball kick-velocity (forward direction) reward (discontinuous)
 # dribble (ps*): teammate keeps ball at dribbler (use small weight)
 # spacing (ps*): crowding penalty when blue robots clump close
 # pass (ps*): pulse when a passed ball reaches a different teammate (0 for solo; small weight)
+# pass_forward (ps*): like pass but scaled by how much the pass advances toward goal [MUSKAN]
+# spread (ps*): reward for robots maintaining spatial separation [MUSKAN]
+# pass_to_shot (ps*): bonus when a shot follows a pass within 15 steps [MUSKAN]
 # goal: goal scored
 # goal_close: goal scored if shot from the last third of the playing field
 # out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
-# (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode (dense or event-triggered), so keep the weight small
+# (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode
 
 reward_templates:
   default: &default_rw
@@ -64,7 +67,7 @@ reward_templates:
     proximity: 0.5
     kick_forward: 0.5
 
-  # Needs warmstart from solo reward stage 
+  # Needs warmstart from solo reward stage
   coop: &coop_rw
     goal: 50
     goal_close: 50
@@ -78,32 +81,36 @@ reward_templates:
 
   # "Annealed" late-stage variant of `coop`
   reduced: &reduced_rw
-    goal: 50  # match
-    goal_close: 50  # match
-    progress: 0.8  # match
-    proximity: 0.15  # faded (coop 0.3)
-    kick_forward: 0.2  # faded (coop 0.4)
-    pass: 0.3  # match
-    dribble: 0.01  # match
-    spacing: 0.02  # match
-    out_of_bounds: 0.05  # match
+    goal: 50
+    goal_close: 50
+    progress: 0.8
+    proximity: 0.15
+    kick_forward: 0.2
+    pass: 0.3
+    dribble: 0.01
+    spacing: 0.02
+    out_of_bounds: 0.05
 
-  # Pure-passing stage 
+  # Pure-passing stage
   passing: &passing_rw
     proximity: 0.4
     kick: 0.3
     pass: 1.0
     spacing: 0.2
     out_of_bounds: 0.1
-    # dribble: 0.05
 
-  standard_with_passing: &standard_passing_rw
-    proximity: 0.1
-    progress: 0.7
-    kick: 0.1
-    passing: 0.1
-    goal_close: 50
+  # Quality-passing: rewards forward passes, positioning, and assist->shot sequences [MUSKAN]
+  quality_passing: &quality_passing_rw
     goal: 50
+    goal_close: 50
+    progress: 0.6
+    proximity: 0.1
+    kick_forward: 0.1
+    pass_forward: 0.2
+    spread: 0.05
+    pass_to_shot: 0.2
+    spacing: 0.02
+    out_of_bounds: 0.05
 
 stages:
   - name: "1vs0"
@@ -137,14 +144,12 @@ stages:
         <<: *right_third
       rewards:
         <<: *solo_rw
-        # TODO: reduce goal_close for teamwork
 
   - name: "2vs0game"
     <<: *defaults
     environment:
       n_robots_blue: 2
       n_robots_yellow: 0
-      # Startpositions similar to a normal game
       allowed_positions_ball:
         <<: *ball_middle
       allowed_positions_blue:
@@ -159,7 +164,6 @@ stages:
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
-      # spawn everything random on the field
       rewards:
         <<: *solo_rw
 
@@ -233,7 +237,6 @@ stages:
         <<: *ball_middle
       rewards:
         <<: *passing_rw
-        <<: *standard_rw
 
   - name: "2vs0passing"
     <<: *defaults
@@ -245,4 +248,16 @@ stages:
       allowed_positions_blue:
         <<: *right_third
       rewards:
-        <<: *standard_passing_rw
+        <<: *coop_rw
+
+  - name: "2vs0quality_passing"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *quality_passing_rw
