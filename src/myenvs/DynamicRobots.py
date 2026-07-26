@@ -100,6 +100,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.last_touch_x = None
         self.last_touch_id = None
         self.last_touch_pos = None
+        self.last_touch_was_blue = False
 
         self.opponent_policy = None
         if opponent_strategy:
@@ -269,15 +270,20 @@ class SSLDynamicRobots(SSLBaseEnv):
     def _update_ball_touch(self):
         """Track which teammate last touched the ball and where (infrared/dribbler contact).
 
-        last_touch_id / last_touch_pos identify the passer for _reward_pass;
+        last_touch_id / last_touch_pos identify the (blue) passer for _reward_pass;
         last_touch_x feeds _reward_goal_close.
+        last_touch_was_blue is a boolean which identifies the team that last touched the ball
         """
         for rid, robot in self.frame.robots_blue.items():
             if robot.infrared:
                 self.last_touch_id = rid
                 self.last_touch_x = self.frame.ball.x
                 self.last_touch_pos = np.array([self.frame.ball.x, self.frame.ball.y])
+                self.last_touch_was_blue = True
                 break
+        else: # no blue touched the ball
+            if any(robot.infrared for robot in self.frame.robots_yellow.values()): # yellow contact on ball
+                self.last_touch_was_blue = False
 
     ### REWARD DEFINITIONS
     ### should be in [-1, 1]!
@@ -390,10 +396,12 @@ class SSLDynamicRobots(SSLBaseEnv):
         return 1.0 if touched_in_front else 0.0
 
     def _reward_out_of_bounds(self):
-        """-1.0 when the ball leaves the playing field, else 0.0.
+        """-1.0 when the ball leaves the field after a blue touch, else 0.0 (goals exempt).
 
-        Actual goals are exempt so scoring is not penalized.
+        Opponent-caused outs are uncontrollable, so not penalized.
         """
+        if not self.last_touch_was_blue:
+            return 0.0
         ball = self.frame.ball
         half_length = self.field.length / 2
         half_width = self.field.width / 2
@@ -404,18 +412,25 @@ class SSLDynamicRobots(SSLBaseEnv):
         return -1.0 if out else 0.0
 
     def _reward_spacing(self):
-        """Crowding penalty: negative when blue robots get closer than d0.
+        """Crowding penalty when >1 blue robot stacks on the ball (closer than d0).
 
-        Prevents robots clumping close and stacking on ball.
+        Only robots within d0 of the ball count, so off-ball spread is not rewarded.
         """
         if self.n_robots_blue < 2:
             return 0.0
-        d0 = 2.0 * self.field_scale  # min comfortable gap (m)
-        pos = [(r.x, r.y) for r in self.frame.robots_blue.values()]
-        n_pairs = self.n_robots_blue * (self.n_robots_blue - 1) / 2
+        d0 = 2.0 * self.field_scale  # min comfortable gap / ball-contest radius (m)
+        ball = self.frame.ball
+        near = [
+            (r.x, r.y)
+            for r in self.frame.robots_blue.values()
+            if np.hypot(r.x - ball.x, r.y - ball.y) <= d0
+        ]
+        if len(near) < 2:
+            return 0.0
+        n_pairs = len(near) * (len(near) - 1) / 2
         pen = sum(
             max(0.0, d0 - np.hypot(a[0] - b[0], a[1] - b[1])) # d0 - (dist between two robots)
-            for a, b in itertools.combinations(pos, 2) # ordered  cross-product without self-pairs
+            for a, b in itertools.combinations(near, 2) # ordered  cross-product without self-pairs
         )
         return -pen / (n_pairs * d0)
 
@@ -469,6 +484,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.last_touch_x = None
         self.last_touch_id = None
         self.last_touch_pos = None
+        self.last_touch_was_blue = False
         pos_frame = Frame()
 
         goal_buffer = 1.0 * self.field_scale
