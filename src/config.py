@@ -117,13 +117,13 @@ class Config(BaseModel):
     # the number of mini-batches"""
     update_epochs: int = 3
     # the K epochs to update the policy"""
-    learning_rate: float = 3e-3
+    learning_rate: float = 3e-4
     # the learning rate of the optimizer"""
     anneal_lr: bool = True
     # Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
     warmup_ratio: float = 0.01
     # fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
-    min_lr_ratio: float = 0.01
+    min_lr_ratio: float = 0.001
     # the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
     num_cycles: int = 1
     # number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
@@ -137,7 +137,7 @@ class Config(BaseModel):
     # the lambda for the general advantage estimation"""
     norm_adv: bool = True
     # Toggles advantages normalization"""
-    clip_coef: float = 0.2
+    clip_coef: float = 0.15
     # the surrogate clipping coefficient"""
     clip_vloss: bool = True
     # Toggles whether or not to use a clipped loss for the value function, as per the paper."""

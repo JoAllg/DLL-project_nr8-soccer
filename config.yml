@@ -37,59 +37,65 @@ position_templates:
     max: [0.9, 0.4]
 
 # Available rewards (reference for templates below)
-# proximity: distance to ball (closer = higher reward)
-# progress: ball progress towards goal
-# kick_forward: robot kicks ball with a forward (+x) component
-# kick: robot kicks ball in any direction (use for passing)
-# kick_velocity: ball kick-velocity (forward direction) reward (discontinoud)
-# dribble: teammate keeps ball at dribbler (use small weight)
-# spacing: crowding penalty when blue robots clump close
-# pass: pulse when a passed ball reaches a different teammate (0 for solo; small weight)
+# proximity (ps*): distance to ball (closer = higher reward)
+# progress (ps*): ball progress towards goal
+# kick_forward (ps*): robot kicks ball with a forward (+x) component
+# kick (ps*): robot kicks ball in any direction (use for passing)
+# kick_velocity (ps*): ball kick-velocity (forward direction) reward (discontinoud)
+# dribble (ps*): teammate keeps ball at dribbler (use small weight)
+# spacing (ps*): crowding penalty when blue robots clump close
+# pass (ps*): pulse when a passed ball reaches a different teammate (0 for solo; small weight)
 # goal: goal scored
 # goal_close: goal scored if shot from the last third of the playing field
-# out_of_bounds: ball left the playing field (penalty; use a positive weight, value already negative)
+# out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
+# (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode (dense or event-triggered), so keep the weight small
 
 reward_templates:
-  standard: &standard_rw
-    proximity: 0.1
+  default: &default_rw
+    goal: 100
     progress: 0.8
+    proximity: 0.1
     kick_forward: 0.1
-    goal_close: 100
 
   solo: &solo_rw
-    proximity: 0.5
-    progress: 0.8
-    kick_forward: 0.5
+    goal: 50
     goal_close: 50
+    progress: 0.8
+    proximity: 0.5
+    kick_forward: 0.5
 
-  # solo: &solo_rw
-  #   proximity: 0.1
-  #   progress: 1.0
-  #   kick_forward: 0.5
-  #   dribble: 0.05
-  #   spacing: 0.1
-  #   pass: 0.1
-  #   goal_close: 100
-  #   out_of_bounds: 0.1
+  # Needs warmstart from solo reward stage 
+  coop: &coop_rw
+    goal: 50
+    goal_close: 50
+    progress: 0.8
+    proximity: 0.3
+    kick_forward: 0.4
+    pass: 0.3
+    dribble: 0.01
+    spacing: 0.02
+    out_of_bounds: 0.05
 
-  # "Annealed" late-stage variant of `solo`
+  # "Annealed" late-stage variant of `coop`
   reduced: &reduced_rw
-    proximity: 0.02   # very small compared to &solo_rw
-    progress: 1.0     # full
-    kick_forward: 0.1         # small
-    dribble: 0.005      # very small
-    spacing: 0.1 # full
-    pass: 0.1 # full
-    goal_close: 100   # full
-    out_of_bounds: 0.1  # full
+    goal: 50  # match
+    goal_close: 50  # match
+    progress: 0.8  # match
+    proximity: 0.15  # faded (coop 0.3)
+    kick_forward: 0.2  # faded (coop 0.4)
+    pass: 0.3  # match
+    dribble: 0.01  # match
+    spacing: 0.02  # match
+    out_of_bounds: 0.05  # match
 
+  # Pure-passing stage 
   passing: &passing_rw
-    out_of_bounds: 0.1
-    proximity: 0.1
-    dribble: 0.05
-    spacing: 0.2
-    kick: 0.2
+    proximity: 0.4
+    kick: 0.3
     pass: 1.0
+    spacing: 0.2
+    out_of_bounds: 0.1
+    # dribble: 0.05
 
 stages:
   - name: "1vs0"
