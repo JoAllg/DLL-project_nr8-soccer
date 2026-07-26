@@ -109,6 +109,7 @@ CLI_FIELDS: dict[str, str] = {
     # to be filled in runtime,
     "config": "path to yaml file providing configuration training stages and environments",
     "stage_name": "which stage of the config file should be executed. None: execute all stages in Order",
+    "rewards": "name of a reward_templates entry that overrides every run stage's reward weights (e.g. --rewards coop)",
     "load_model": "Path to a .cleanrl_model checkpoint to load before the first training stage.",
     "save_steps": "How often the model should be saved in between (0 -> only save at the end)",
 }
@@ -430,6 +431,18 @@ if __name__ == "__main__":
     explicit_args = get_explicit_args(Args, args)
     config = load_config(args.config)
     config = override_with_args(explicit_args, config)
+
+    # --rewards <template>: overwrite every stage's reward weights with the named
+    # reward_templates entry (e.g. run 2vs2ou with the `coop` weights)
+    if config.rewards is not None:
+        if config.rewards not in config.reward_templates:
+            raise ValueError(
+                f"--rewards '{config.rewards}' not found in reward_templates; "
+                f"available: {sorted(config.reward_templates)}"
+            )
+        template = config.reward_templates[config.rewards]
+        for stage in config.stages:
+            stage.environment.rewards = dict(template)
 
     # single-node torchrun; LOCAL_RANK doubles as global rank. CUDA init is
     # deferred to device selection below, after AsyncVectorEnv forks workers.

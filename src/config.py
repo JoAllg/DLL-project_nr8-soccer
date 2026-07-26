@@ -185,6 +185,8 @@ class Config(BaseModel):
     save_steps: int = 0
     # How often the model should be saved in between (0 -> only save at the end of a stage)"""
     stage_name: Optional[list[str]] = Field(default=None)
+    rewards: Optional[str] = None
+    # name of a reward_templates entry that overrides every stage's reward weights"""
 
     position_templates: dict[str, Area] = Field(default_factory=dict)
     # Reusable position templates (Area) for robot/ball spawn definitions"""
