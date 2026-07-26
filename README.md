@@ -63,7 +63,7 @@ Optional:
 
 
 
-# Ressources @Julien
+# Resources @Julien
 
 rSoccer environment: [https://github.com/robocin/rSoccer](https://github.com/robocin/rSoccer)
 
