@@ -123,11 +123,11 @@ class Config(BaseModel):
     # Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
     warmup_ratio: float = 0.01
     # fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
-    min_lr_ratio: float = 1e-8
+    min_lr_ratio: float = 0.001
     # the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
     num_cycles: int = 1
     # number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
-    cycle_decay: float = 0.5
+    cycle_decay: float = 1
     # peak-LR multiplier applied at each LR restart (0.5 halves the max LR every cycle); 1.0 = no decay"""
     weight_decay: float = 0.01
     # AdamW weight decay (applied to matrix weights only, see optimizer setup)"""
@@ -137,15 +137,13 @@ class Config(BaseModel):
     # the lambda for the general advantage estimation"""
     norm_adv: bool = True
     # Toggles advantages normalization"""
-    clip_coef: float = 0.1
+    clip_coef: float = 0.15
     # the surrogate clipping coefficient"""
     clip_vloss: bool = True
     # Toggles whether or not to use a clipped loss for the value function, as per the paper."""
     ent_coef: float = 0.01
     # initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)"""
     # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
-    # a decaying entropy bonus buys exploration early (finding ball/goal at all)
-    # without keeping the policy noisy late in training
     final_ent_coef: float = 0.0
     # final entropy coefficient after linear annealing from ent_coef over total_timesteps"""
     vf_coef: float = 0.5

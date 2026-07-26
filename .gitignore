@@ -224,3 +224,4 @@ hpc-scripts/.env
 deps
 videos
 wandb
+logs
