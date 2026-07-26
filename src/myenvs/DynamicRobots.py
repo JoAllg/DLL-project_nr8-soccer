@@ -65,7 +65,7 @@ class SSLDynamicRobots(SSLBaseEnv):
     TEAMMATE_DIM = 7  # [x, y, sin(θ), cos(θ), vx, vy, vθ]
     OPPONENT_DIM = 7  # [x, y, vx, vy, vθ] (no heading observed for opponents)
 
-    DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick": 0.1, "goal": 100.0}
+    DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick_forward": 0.1, "goal": 100.0}
 
     AreaTuple = dict[str, tuple[float, float]]
 
@@ -325,7 +325,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         last_dist = np.linalg.norm([goal_x - last_ball.x, last_ball.y])
         return (last_dist - current_dist) / (self.kick_speed * self.time_step)
 
-    def _reward_kick(self):
+    def _reward_kick_forward(self):
         """Fires the step a kick happens with any forward (+x) component.
 
         Detects a kick as a sudden ball-speed jump (beyond drive/dribble acceleration),
@@ -345,6 +345,19 @@ class SSLDynamicRobots(SSLBaseEnv):
         if dv < self.max_v:
             return 0.0
         return 1.0 if dvx > 0 else 0.0
+
+    def _reward_kick(self):
+        """Copy of `_reward_kick_forward` that fires for any kick-direction"""
+        if self.last_frame is None:
+            return 0.0
+        ball = self.frame.ball
+        last = self.last_frame.ball
+        dvx = ball.v_x - last.v_x
+        dvy = ball.v_y - last.v_y
+        dv = np.hypot(dvx, dvy)  # hypotenuse / total speed of the ball
+
+        # ball speed above robot speed (dribbling) is a kick impulse
+        return 1.0 if dv >= self.max_v else 0.0
 
     def _reward_kick_velocity(self):
         """Ball kick velocity toward the goal (x-axis),
