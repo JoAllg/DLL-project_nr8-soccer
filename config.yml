@@ -214,8 +214,7 @@ stages:
     <<: *defaults
     environment:
       n_robots_blue: 3
-      n_robots_yellow: 3
-      opponent_strategy: "Uhlstein"
+      n_robots_yellow: 0
       allowed_positions_ball:
         <<: *ball_middle
       rewards:
