@@ -112,6 +112,18 @@ reward_templates:
     spacing: 0.02
     out_of_bounds: 0.05
 
+  quality_passing_block: &quality_passing_block_rw
+    goal: 50
+    goal_close: 50
+    progress: 0.6
+    proximity: 0.1
+    kick_forward: 0.1
+    pass_forward: 0.3    # increase, passing is the point here
+    spread: 0.1          # increase, need robots to separate against blocker
+    pass_to_shot: 0.3    # increase, reward the full sequence
+    spacing: 0.02
+    out_of_bounds: 0.05
+
 stages:
   - name: "1vs0"
     <<: *defaults
@@ -261,3 +273,18 @@ stages:
         <<: *blue_half
       rewards:
         <<: *quality_passing_rw
+
+  - name: "2vs2block_passing"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Block"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *quality_passing_block_rw

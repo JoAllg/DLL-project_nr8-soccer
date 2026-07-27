@@ -124,6 +124,9 @@ class SSLDynamicRobots(SSLBaseEnv):
                 f"unknown reward names {unknown}, available: {sorted(self.DEFAULT_REWARD_WEIGHTS)}"
             )
         self.reward_functions = {name: getattr(self, f"_reward_{name}") for name in self.reward_weights}
+        self.episode_reward_breakdown = {name: 0.0 for name in self.reward_weights}
+        self.episode_pass_count = 0
+        self.episode_goal_count = 0
 
     def set_opponent_agent(self, agent: Agent):
         self.opponent_policy = AgentOpponentPolicy(agent)
@@ -234,8 +237,26 @@ class SSLDynamicRobots(SSLBaseEnv):
         if self.episode_steps >= self.max_steps:
             self.episode_steps = 0
             return 0, True
+        
+        ball = self.frame.ball
+        half_length = self.field.length / 2
+        half_width = self.field.width / 2
 
-        reward = sum(weight * self.reward_functions[name]() for name, weight in self.reward_weights.items())
+        # End episode if ball leaves the field (not a goal)
+        in_goal = ball.x > half_length and abs(ball.y) < self.field.goal_width / 2
+        ball_out = abs(ball.x) > half_length or abs(ball.y) > half_width
+
+        if ball_out and not in_goal:
+            self.episode_steps = 0
+            return -1.0, True
+        
+        #reward calculation
+        reward = 0.0
+        for name, weight in self.reward_weights.items():
+            r = self.reward_functions[name]()
+            weighted = weight * r
+            self.episode_reward_breakdown[name] += weighted
+            reward += weighted
         return reward, self._reward_goal() > 0
 
     def _update_ball_touch(self):
@@ -339,7 +360,10 @@ class SSLDynamicRobots(SSLBaseEnv):
         ball = self.frame.ball
         goal_x = self.field.length / 2
         in_goal = ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2
-        return 1.0 if in_goal else 0.0
+        if in_goal:
+            self.episode_goal_count += 1
+            return 1.0
+        return 0.0
 
     def _reward_goal_close(self):
         """1.0 when the ball is in the goal AND was last touched in the attacking third."""
@@ -443,6 +467,7 @@ class SSLDynamicRobots(SSLBaseEnv):
             now_near = np.linalg.norm(ball - pos) <= recv_radius
             was_near = np.linalg.norm(last_ball - pos) <= recv_radius
             if now_near and not was_near:
+                self.episode_pass_count += 1
                 x_gain = ball[0] - self.last_touch_pos[0]
                 direction_score = np.clip(x_gain / self.field.length, 0.0, 1.0)
                 self.pass_pending_shot = True
@@ -487,6 +512,23 @@ class SSLDynamicRobots(SSLBaseEnv):
         return 1.0 if any(robot.infrared for robot in self.frame.robots_blue.values()) else 0.0
 
     def _get_initial_positions_frame(self):
+
+        # Log episode metrics before reset
+        try:
+            import wandb
+            if wandb.run is not None:
+                log_dict = {f"rewards/{name}": val for name, val in self.episode_reward_breakdown.items()}
+                log_dict["episode_passes"] = self.episode_pass_count
+                log_dict["episode_goals"] = self.episode_goal_count
+                if self.episode_pass_count > 0:
+                    log_dict["pass_to_goal_ratio"] = 1.0 if self.episode_goal_count > 0 else 0.0
+                wandb.log(log_dict)
+        except:
+            pass
+
+        self.episode_reward_breakdown = {name: 0.0 for name in self.reward_weights}
+        self.episode_pass_count = 0
+        self.episode_goal_count = 0
         self.episode_steps = 0
         self.last_touch_x = None
         self.last_touch_id = None
