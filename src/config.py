@@ -51,7 +51,8 @@ class Stage(BaseModel):
 
     # optional fields — can be omitted
     # ---------------------------------
-    steps: int = Field(default=2024, multiple_of=1024)
+    # rollout length; when omitted here it is filled from Config.num_steps
+    steps: int = Field(default=2 * 1024, multiple_of=1024)
     n_robots_yellow: Optional[int] = None
     save_model: bool = True
     
@@ -109,10 +110,12 @@ class Config(BaseModel):
     # the id of the environment"""
     total_timesteps: int = 20000000
     # total timesteps of the experiments"""
-    num_envs: int = 16
-    # the number of parallel game environments"""
-    num_steps: int = 2048*2 #NOT USED
-    # the number of steps to run in each environment per policy rollout"""
+    num_envs: int = 0
+    # the number of parallel game environments (0 -> envs_per_cpu * available CPUs)"""
+    envs_per_cpu: int = 2
+    # multiplier used to derive num_envs from the available CPU count when num_envs is unset"""
+    num_steps: int = 2 * 1024
+    # the number of steps to run in each environment per policy rollout (see apply_num_steps)"""
     num_minibatches: int = 8 # TODO: increase on cluster to 16
     # the number of mini-batches"""
     update_epochs: int = 3
@@ -197,7 +200,18 @@ class Config(BaseModel):
     def model_post_init(self, __context) -> None:
         self._name_to_index = {stage.name: i for i, stage in enumerate(self.stages)}
 
-        #TODO: override stage steps and stage.iterations
+        #TODO: override stage.iterations
+
+    def apply_num_steps(self, force: bool = False) -> None:
+        """Push `num_steps` into the stages' rollout length.
+
+        A stage that sets `steps` in the yaml keeps it; `force` (an explicit
+        --num-steps on the CLI) overrides every stage. Call after the CLI args
+        have been merged into the config.
+        """
+        for stage in self.stages:
+            if force or "steps" not in stage.model_fields_set:
+                stage.steps = self.num_steps
 
     def get_stages_from_name(self, names: Optional[list[str]]) -> list[int]:
         if not names:

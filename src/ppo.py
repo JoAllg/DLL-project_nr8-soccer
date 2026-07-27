@@ -7,6 +7,13 @@ from datetime import datetime
 
 from typing import Optional, Annotated
 
+# Pin the BLAS/OMP thread pools *before* numpy/torch load — OpenBLAS reads these at
+# import time. AsyncVectorEnv workers (context="spawn") inherit them, so each of the
+# num_envs worker processes runs single-threaded instead of sizing its pool to the
+# core count. The trainer restores its own parallelism via torch.set_num_threads below.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
 warnings.filterwarnings(
     "ignore",
     message="pkg_resources is deprecated as an API",
@@ -23,6 +30,7 @@ warnings.filterwarnings(
 import gymnasium as gym
 import numpy as np
 import torch
+from gymnasium.vector import AutoresetMode
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
@@ -71,7 +79,9 @@ CLI_FIELDS: dict[str, str] = {
     # Algorithm specific arguments
     "env_id": "the id of the environment",
     "total_timesteps": "total timesteps of the experiments",
-    "num_envs": "the number of parallel game environments",
+    "num_envs": "the number of parallel game environments (0 -> envs_per_cpu * available CPUs)",
+    "envs_per_cpu": "multiplier used to derive num_envs from the available CPU count when num_envs is unset",
+    "num_steps": "the number of steps to run in each environment per policy rollout (overrides every stage's `steps`)",
     "num_minibatches": "the number of mini-batches",
     "update_epochs": "the K epochs to update the policy",
     "learning_rate": "the learning rate of the optimizer",
@@ -162,6 +172,9 @@ def upload_model_artifact(model_path: str, stage_id: int, stage_name: str, globa
 def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
              environment_args: Optional[dict] = None):
     def thunk():
+        # runs inside the worker process: keep env stepping (and any opponent-agent
+        # inference) single-threaded so workers don't oversubscribe the cores
+        torch.set_num_threads(1)
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array", **(environment_args
                                                                or {}))
@@ -447,6 +460,8 @@ if __name__ == "__main__":
     explicit_args = get_explicit_args(Args, args)
     config = load_config(args.config)
     config = override_with_args(explicit_args, config)
+    # rollout length: a stage's own `steps` wins, an explicit --num-steps beats both
+    config.apply_num_steps(force="num_steps" in explicit_args)
 
     # --rewards <template>: overwrite every stage's reward weights with the named
     # reward_templates entry (e.g. run 2vs2ou with the `coop` weights)
@@ -466,6 +481,24 @@ if __name__ == "__main__":
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     is_distributed = world_size > 1
     is_main = local_rank == 0
+
+    # scale the env count to the machine unless it was given explicitly. Rounded down to
+    # a multiple of world_size to keep the num_envs % world_size assert below satisfied.
+    if config.num_envs <= 0:
+        cpus = utils.available_cpus()
+        config.num_envs = max(world_size, (cpus * config.envs_per_cpu) // world_size * world_size)
+        print(f"cpus available: {cpus} | num_envs: {config.num_envs} "
+              f"(auto: {cpus} x envs_per_cpu {config.envs_per_cpu})")
+    else:
+        print(f"cpus available: {utils.available_cpus()} | num_envs: {config.num_envs} (explicit)")
+
+    # preview of the per-stage batch shapes the loop below recomputes, so a bad
+    # num_envs / steps / num_minibatches combination is visible before training starts
+    for s in config.stages:
+        s_mb = s.num_minibatches if s.num_minibatches is not None else config.num_minibatches
+        s_batch = config.num_envs * s.steps
+        print(f"  stage '{s.name}': steps={s.steps} batch_size={s_batch} "
+              f"num_minibatches={s_mb} minibatch_size={s_batch // s_mb}")
 
     # NOTE: batch_size / minibatch_size / num_minibatches are computed per-stage,
     # inside the stage loop below, since each stage may have its own `steps` and
@@ -591,6 +624,10 @@ if __name__ == "__main__":
             else:
                 device, _ = utils.get_device(config.cuda)
 
+            # undo the OMP_NUM_THREADS=1 pin for the trainer only (workers keep it).
+            # Matters most CPU-only, where the update phase should use every core.
+            torch.set_num_threads(utils.available_cpus())
+
             agent = Agent(
                 envs, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
                 n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
@@ -619,13 +656,18 @@ if __name__ == "__main__":
 
         # defining opponent agent
         if agent_opponent is None and stage.environment.opponent_strategy == "Agent" and stage.environment.opponent_model:
+            # stays on CPU: it is pickled to every worker and only ever run there
+            # (AgentOpponentPolicy.act). On device it would pickle CUDA tensors and give
+            # each of the num_envs workers its own CUDA context.
             agent_opponent = Agent(
                 envs, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
                 n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
                 dropout=config.dropout, critic_pooling=config.critic_pooling,
-            ).to(device)
-            agent_opponent.load_state_dict(torch.load(stage.environment.opponent_model, map_location=device))
-            envs.call("set_opponent_agent", agent_opponent) 
+            )
+            agent_opponent.load_state_dict(torch.load(stage.environment.opponent_model, map_location="cpu"))
+            agent_opponent.eval()
+            agent_opponent.requires_grad_(False)
+            envs.call("set_opponent_agent", agent_opponent)
             
 
         

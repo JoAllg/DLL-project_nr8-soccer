@@ -53,6 +53,18 @@ def set_seed(seed: int, deterministic: bool = False):
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.use_deterministic_algorithms(deterministic)
 
+def available_cpus() -> int:
+    """CPUs this process may actually run on.
+
+    Uses the scheduler affinity mask rather than os.cpu_count(), so a Slurm cgroup
+    (or taskset) is honoured instead of reporting the whole node's core count.
+    """
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # not Linux
+        return os.cpu_count() or 1
+
+
 def get_device(cuda: bool):
     if torch.cuda.is_available() and cuda:
         device = torch.device("cuda")
