@@ -115,7 +115,7 @@ class Config(BaseModel):
     # the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 32
     # the number of mini-batches"""
-    update_epochs: int = 3
+    update_epochs: int = 4
     # the K epochs to update the policy"""
     learning_rate: float = 3e-4
     # the learning rate of the optimizer"""
@@ -137,7 +137,7 @@ class Config(BaseModel):
     # the lambda for the general advantage estimation"""
     norm_adv: bool = True
     # Toggles advantages normalization"""
-    clip_coef: float = 0.15
+    clip_coef: float = 0.1
     # the surrogate clipping coefficient"""
     clip_vloss: bool = True
     # Toggles whether or not to use a clipped loss for the value function, as per the paper."""
@@ -146,7 +146,7 @@ class Config(BaseModel):
     # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
     final_ent_coef: float = 0.0
     # final entropy coefficient after linear annealing from ent_coef over total_timesteps"""
-    vf_coef: float = 0.5
+    vf_coef: float = 0.25
     # coefficient of the value function"""
     max_grad_norm: float = 0.25
     # the maximum norm for the gradient clipping"""

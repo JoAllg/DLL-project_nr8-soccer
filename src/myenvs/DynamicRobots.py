@@ -513,19 +513,6 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     def _get_initial_positions_frame(self):
 
-        # Log episode metrics before reset
-        try:
-            import wandb
-            if wandb.run is not None:
-                log_dict = {f"rewards/{name}": val for name, val in self.episode_reward_breakdown.items()}
-                log_dict["episode_passes"] = self.episode_pass_count
-                log_dict["episode_goals"] = self.episode_goal_count
-                if self.episode_pass_count > 0:
-                    log_dict["pass_to_goal_ratio"] = 1.0 if self.episode_goal_count > 0 else 0.0
-                wandb.log(log_dict)
-        except:
-            pass
-
         self.episode_reward_breakdown = {name: 0.0 for name in self.reward_weights}
         self.episode_pass_count = 0
         self.episode_goal_count = 0
