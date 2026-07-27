@@ -48,7 +48,7 @@ position_templates:
 # goal: goal scored
 # goal_close: goal scored if shot from the last third of the playing field
 # out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
-# time (ps*): flat per-step penalty so idling is never optimal (penalty; positive weight, value already negative)
+# time (ps*): flat per-step penalty, makes ending the episode sooner worth more (penalty; positive weight, value already negative)
 # (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode (dense or event-triggered), so keep the weight small
 
 reward_templates:
@@ -64,6 +64,7 @@ reward_templates:
     progress: 0.8
     proximity: 0.5
     kick_forward: 0.5
+    time: 0.0005  # -1/episode at max_steps=1000
 
   # Needs warmstart from solo reward stage 
   coop: &coop_rw
@@ -76,7 +77,7 @@ reward_templates:
     dribble: 0.01
     spacing: 0.02
     out_of_bounds: 0.05
-    time: 0.001  # -1/episode at max_steps=1000, enough to break idle ties
+    time: 0.001  # -1/episode at max_steps=1000
 
   # "Annealed" late-stage variant of `coop`
   reduced: &reduced_rw

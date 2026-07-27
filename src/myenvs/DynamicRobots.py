@@ -97,6 +97,7 @@ class SSLDynamicRobots(SSLBaseEnv):
             shape=(4 + n_robots_blue * self.TEAMMATE_DIM + n_robots_yellow * self.OPPONENT_DIM,),
         )
         self.episode_steps = 0
+        self.time_limit_reached = False
         self.last_touch_x = None
         self.last_touch_id = None
         self.last_touch_pos = None
@@ -248,11 +249,21 @@ class SSLDynamicRobots(SSLBaseEnv):
                 )
         return commands
 
+    def step(self, action):
+        """SSLBaseEnv reports the time limit as `terminated`; split it back out into
+        `truncated` so PPO bootstraps V(s_T) instead of learning that the world ends
+        at max_steps."""
+        observation, reward, done, _, info = super().step(action)
+        truncated = done and self.time_limit_reached
+        return observation, reward, done and not truncated, truncated, info
+
     def _calculate_reward_and_done(self):
         self.episode_steps += 1
         self._update_ball_touch()
+        self.time_limit_reached = False
         if self.episode_steps >= self.max_steps:
             self.episode_steps = 0
+            self.time_limit_reached = True
             return 0, True
 
         # End episode if robot goes out of bounds
@@ -470,6 +481,16 @@ class SSLDynamicRobots(SSLBaseEnv):
                 return 1.0
         return 0.0
 
+    def _reward_time(self):
+        """Constant -1.0 per step, i.e. V(s) ~= -weight * remaining steps.
+
+        Being state- and action-independent it gives no signal *within* an
+        episode; what it does is make ending the episode sooner worth more, so
+        the policy prefers scoring now over stalling. Use a tiny weight: it
+        accumulates over every step of the episode.
+        """
+        return -1.0
+
     def _reward_dribble(self):
         """1.0 while a teammate keeps the ball at its dribbler (infrared
         contact), else 0.0.
@@ -481,6 +502,7 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     def _get_initial_positions_frame(self):
         self.episode_steps = 0
+        self.time_limit_reached = False
         self.last_touch_x = None
         self.last_touch_id = None
         self.last_touch_pos = None

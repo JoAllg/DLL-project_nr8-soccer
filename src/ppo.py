@@ -281,13 +281,29 @@ def run_stage(
             rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
 
+            # Time-limit bootstrapping: GAE below cuts the value target at every
+            # `done`, which is correct for a goal but wrong for the max_steps
+            # cutoff — the episode was still going. Fold gamma*V(s_T) into the
+            # reward for truncated envs so the tail value is not thrown away.
+            # Under SAME_STEP autoreset `next_obs` is already the reset obs, so
+            # s_T has to come from infos["final_obs"].
+            if truncations.any():
+                trunc_mask = torch.as_tensor(truncations, dtype=torch.bool, device=device)
+                final_obs = np.stack(infos["final_obs"][truncations])
+                with torch.no_grad():
+                    final_values = agent.get_value(torch.Tensor(final_obs).to(device)).flatten()
+                rewards[step][trunc_mask] += config.gamma * final_values
+
             #fixed logging (rank 0 only; its envs are an accepted approximation for the parallel runs)
-            if writer is not None and "episode" in infos:
-                for i, r in enumerate(infos["episode"]["r"]):
-                    if infos["_episode"][i]:
+            # SAME_STEP autoreset nests the terminating step's info — where
+            # RecordEpisodeStatistics writes `episode` — under `final_info`
+            episode_infos = infos.get("final_info", {})
+            if writer is not None and "episode" in episode_infos:
+                for i, r in enumerate(episode_infos["episode"]["r"]):
+                    if episode_infos["_episode"][i]:
                         print(f"global_step={global_step}, episodic_return={r:.2f}")
                         writer.add_scalar("charts/episodic_return", r, global_step)
-                        writer.add_scalar("charts/episodic_length", infos["episode"]["l"][i], global_step)
+                        writer.add_scalar("charts/episodic_length", episode_infos["episode"]["l"][i], global_step)
 
             # save checkpoint
             if is_main and config.save_steps > 0 and global_step - last_save_step >= config.save_steps:
@@ -555,7 +571,13 @@ if __name__ == "__main__":
                 for i in range(local_num_envs)
 
             ],
-            context="spawn" # spawn new process each time otherwise deadlock at 2nd stage
+            context="spawn", # spawn new process each time otherwise deadlock at 2nd stage
+            # gymnasium's NEXT_STEP default spends a whole extra step resetting,
+            # which lands in the rollout as a fake transition (terminal obs, ignored
+            # action, reward 0) that GAE then trains on. SAME_STEP resets in place
+            # and hands back the real final obs via infos["final_obs"], restoring the
+            # `dones[t] marks a reset obs` semantics this loop's GAE assumes.
+            autoreset_mode=AutoresetMode.SAME_STEP,
         )
         assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
