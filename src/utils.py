@@ -60,9 +60,15 @@ def available_cpus() -> int:
     (or taskset) is honoured instead of reporting the whole node's core count.
     """
     try:
-        return len(os.sched_getaffinity(0))
+        cpus = len(os.sched_getaffinity(0))
     except AttributeError:  # not Linux
-        return os.cpu_count() or 1
+        cpus = os.cpu_count() or 1
+
+    nnodes = int(os.environ.get("SLURM_NNODES", 1))
+    if nnodes > 1:
+        print(f"WARNING: Slurm allocation spans {nnodes} nodes but only this node's "
+              f"{cpus} CPUs are usable — request --nodes=1 --ntasks=1 --cpus-per-task=N")
+    return cpus
 
 
 def get_device(cuda: bool):
