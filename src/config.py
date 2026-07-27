@@ -55,8 +55,13 @@ class Stage(BaseModel):
     steps: int = Field(default=2 * 1024, multiple_of=1024)
     n_robots_yellow: Optional[int] = None
     save_model: bool = True
-    
+
     num_minibatches: Optional[int] = None
+
+    # per-stage env-count overrides; fall back to Config.num_envs / Config.envs_per_cpu.
+    # An explicit --num-envs on the CLI still wins over both.
+    num_envs: Optional[int] = None
+    envs_per_cpu: Optional[int] = None
 
     # reject any field not defined above
     model_config = ConfigDict(extra="forbid")

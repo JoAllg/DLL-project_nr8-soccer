@@ -492,20 +492,38 @@ if __name__ == "__main__":
 
     # scale the env count to the machine unless it was given explicitly. Rounded down to
     # a multiple of world_size to keep the num_envs % world_size assert below satisfied.
-    if config.num_envs <= 0:
+    def envs_from_cpus(envs_per_cpu: int) -> int:
         cpus = utils.available_cpus()
-        config.num_envs = max(world_size, (cpus * config.envs_per_cpu) // world_size * world_size)
-        print(f"cpus available: {cpus} | num_envs: {config.num_envs} "
-              f"(auto: {cpus} x envs_per_cpu {config.envs_per_cpu})")
+        return max(world_size, (cpus * envs_per_cpu) // world_size * world_size)
+
+    num_envs_explicit = config.num_envs > 0
+    if not num_envs_explicit:
+        config.num_envs = envs_from_cpus(config.envs_per_cpu)
+        print(f"cpus available: {utils.available_cpus()} | num_envs: {config.num_envs} "
+              f"(auto: envs_per_cpu {config.envs_per_cpu})")
     else:
         print(f"cpus available: {utils.available_cpus()} | num_envs: {config.num_envs} (explicit)")
+
+    default_num_envs = config.num_envs
+
+    def stage_env_count(s) -> int:
+        """Per-stage env count: an explicit --num-envs wins, then the stage's own
+        num_envs / envs_per_cpu, else the global default."""
+        if num_envs_explicit:
+            return config.num_envs
+        if s.num_envs is not None:
+            return s.num_envs
+        if s.envs_per_cpu is not None:
+            return envs_from_cpus(s.envs_per_cpu)
+        return default_num_envs
 
     # preview of the per-stage batch shapes the loop below recomputes, so a bad
     # num_envs / steps / num_minibatches combination is visible before training starts
     for s in config.stages:
         s_mb = s.num_minibatches if s.num_minibatches is not None else config.num_minibatches
-        s_batch = config.num_envs * s.steps
-        print(f"  stage '{s.name}': steps={s.steps} batch_size={s_batch} "
+        s_envs = stage_env_count(s)
+        s_batch = s_envs * s.steps
+        print(f"  stage '{s.name}': num_envs={s_envs} steps={s.steps} batch_size={s_batch} "
               f"num_minibatches={s_mb} minibatch_size={s_batch // s_mb}")
 
     # NOTE: batch_size / minibatch_size / num_minibatches are computed per-stage,
@@ -578,6 +596,10 @@ if __name__ == "__main__":
     for stage_id in stage_ids:
         stage = config.stages[stage_id]
         env_args = stage.environment.model_dump()
+
+        # a stage may run fewer/more envs than the rest (e.g. agent opponents cost
+        # extra memory per worker); run_stage reads config.num_envs for global_step
+        config.num_envs = stage_env_count(stage)
 
         # calculate iterations from total_steps per stage
         # total_steps = iterations * num_envs * stage.steps
