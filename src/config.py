@@ -121,7 +121,7 @@ class Config(BaseModel):
     # multiplier used to derive num_envs from the available CPU count when num_envs is unset"""
     num_steps: int = 2 * 1024
     # the number of steps to run in each environment per policy rollout (see apply_num_steps)"""
-    num_minibatches: int = 8 # TODO: increase on cluster to 16
+    num_minibatches: int = 16 # TODO: increase on cluster to 32
     # the number of mini-batches"""
     update_epochs: int = 3
     # the K epochs to update the policy"""
@@ -160,7 +160,7 @@ class Config(BaseModel):
     # the maximum norm for the gradient clipping"""
     target_kl: Optional[float] = None
     # the target KL divergence threshold"""
-    rpo_alpha: float = 0.5 # Best values between 0.5 to 0.1
+    rpo_alpha: float = 0.2 # Best values between 0.5 to 0.1
     # the alpha parameter for RPO"""
 
     # Agent architecture arguments

@@ -77,7 +77,6 @@ reward_templates:
     dribble: 0.01
     spacing: 0.03
     out_of_bounds: 0.05
-    time: 0.001
 
   # "Annealed" late-stage variant of `coop`
   reduced: &reduced_rw
