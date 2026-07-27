@@ -48,6 +48,7 @@ position_templates:
 # goal: goal scored
 # goal_close: goal scored if shot from the last third of the playing field
 # out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
+# time (ps*): flat per-step penalty so idling is never optimal (penalty; positive weight, value already negative)
 # (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode (dense or event-triggered), so keep the weight small
 
 reward_templates:
@@ -75,6 +76,7 @@ reward_templates:
     dribble: 0.01
     spacing: 0.02
     out_of_bounds: 0.05
+    time: 0.001  # -1/episode at max_steps=1000, enough to break idle ties
 
   # "Annealed" late-stage variant of `coop`
   reduced: &reduced_rw
@@ -87,8 +89,9 @@ reward_templates:
     dribble: 0.01  # match
     spacing: 0.02  # match
     out_of_bounds: 0.05  # match
+    time: 0.001  # match
 
-  # Pure-passing stage 
+  # Pure-passing stage
   passing: &passing_rw
     proximity: 0.4
     kick: 0.3
@@ -98,8 +101,8 @@ reward_templates:
     # dribble: 0.05
 
 stages:
-  - name: "1vs0"
-    <<: *defaults
+  - name: "1vs0yellow-half"
+    total_steps: 8000000
     environment:
       n_robots_blue: 1
       n_robots_yellow: 0
@@ -111,7 +114,7 @@ stages:
         <<: *solo_rw
 
   - name: "1vs0random"
-    <<: *defaults
+    total_steps: 10000000
     environment:
       n_robots_blue: 1
       n_robots_yellow: 0

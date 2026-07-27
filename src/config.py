@@ -51,7 +51,7 @@ class Stage(BaseModel):
 
     # optional fields — can be omitted
     # ---------------------------------
-    steps: int = Field(default=4096, multiple_of=1024)
+    steps: int = Field(default=2024, multiple_of=1024)
     n_robots_yellow: Optional[int] = None
     save_model: bool = True
     
@@ -111,9 +111,9 @@ class Config(BaseModel):
     # total timesteps of the experiments"""
     num_envs: int = 16
     # the number of parallel game environments"""
-    num_steps: int = 2048*2
+    num_steps: int = 2048*2 #NOT USED
     # the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 32
+    num_minibatches: int = 8 # TODO: increase on cluster to 16
     # the number of mini-batches"""
     update_epochs: int = 3
     # the K epochs to update the policy"""
