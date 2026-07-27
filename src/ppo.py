@@ -334,7 +334,17 @@ def run_stage(
                     if episode_infos["_episode"][i]:
                         print(f"global_step={global_step}, episodic_return={r:.2f}")
                         writer.add_scalar("charts/episodic_return", r, global_step)
-                        writer.add_scalar("charts/episodic_length", episode_infos["episode"]["l"][i], global_step)
+                        writer.add_scalar("charts/episodic_length", infos["episode"]["l"][i], global_step)
+                        # Log custom cooperation metrics [MUSKAN]
+                        try:
+                            env = envs.envs[i].unwrapped
+                            if hasattr(env, 'episode_pass_count'):
+                                writer.add_scalar("charts/episode_passes", env.episode_pass_count, global_step)
+                                writer.add_scalar("charts/episode_goals", env.episode_goal_count, global_step)
+                            for name, val in env.episode_reward_breakdown.items():
+                                writer.add_scalar(f"rewards/{name}", val, global_step)
+                        except Exception:
+                            pass
 
             # save checkpoint
             if is_main and config.save_steps > 0 and global_step - last_save_step >= config.save_steps:

@@ -280,6 +280,7 @@ stages:
 
   - name: "2vs2block_passing"
     <<: *defaults
+    num_minibatches: 16    # was 32, doubles minibatch from 2,048 to 4,096
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
