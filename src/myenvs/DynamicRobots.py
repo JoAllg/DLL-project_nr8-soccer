@@ -1,4 +1,7 @@
+import io
+
 import numpy as np
+import torch
 from gymnasium.spaces import Box
 from rsoccer_gym.Entities import Ball, Frame, Robot
 from rsoccer_gym.Render import SSLRenderField
@@ -139,7 +142,12 @@ class SSLDynamicRobots(SSLBaseEnv):
             )
         self.reward_functions = {name: getattr(self, f"_reward_{name}") for name in self.reward_weights}
 
-    def set_opponent_agent(self, agent: Agent):
+    def set_opponent_agent(self, agent: "Agent | bytes"):
+        # AsyncVectorEnv senders pass a torch.save buffer (one fd per worker) instead
+        # of a live module (one fd per parameter storage); SyncVectorEnv passes the
+        # module directly since nothing crosses a pipe.
+        if isinstance(agent, (bytes, bytearray)):
+            agent = torch.load(io.BytesIO(agent), map_location="cpu", weights_only=False)
         self.opponent_policy = AgentOpponentPolicy(agent)
 
     def reset(self, *, seed=None, options=None):

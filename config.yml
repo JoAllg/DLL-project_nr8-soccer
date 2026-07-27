@@ -206,6 +206,7 @@ stages:
 
   - name: "2vs2opponent"
     <<: *defaults
+    envs_per_cpu: 1
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2

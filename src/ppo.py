@@ -1,5 +1,7 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
+import io
 import os
+import resource
 import time
 import warnings
 import signal
@@ -13,6 +15,12 @@ from typing import Optional, Annotated
 # core count. The trainer restores its own parallelism via torch.set_num_threads below.
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+# Each AsyncVectorEnv worker costs pipes plus a shared-memory fd per obs buffer; a
+# 1024 soft limit runs out well before num_envs does. Raise to the hard limit.
+_soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+if _soft < _hard:
+    resource.setrlimit(resource.RLIMIT_NOFILE, (_hard, _hard))
 
 warnings.filterwarnings(
     "ignore",
@@ -664,10 +672,17 @@ if __name__ == "__main__":
                 n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
                 dropout=config.dropout, critic_pooling=config.critic_pooling,
             )
-            agent_opponent.load_state_dict(torch.load(stage.environment.opponent_model, map_location="cpu"))
+            agent_opponent.load_state_dict(
+                torch.load(stage.environment.opponent_model, map_location="cpu", weights_only=True)
+            )
             agent_opponent.eval()
             agent_opponent.requires_grad_(False)
-            envs.call("set_opponent_agent", agent_opponent)
+            # serialize to bytes before crossing the worker pipes: pickling a live
+            # nn.Module makes torch hand over every parameter storage as its own fd
+            # (file_descriptor sharing), which blows past the fd limit at high num_envs.
+            buf = io.BytesIO()
+            torch.save(agent_opponent, buf)
+            envs.call("set_opponent_agent", buf.getvalue())
             
 
         
