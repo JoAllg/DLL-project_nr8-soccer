@@ -124,6 +124,15 @@ reward_templates:
     spacing: 0.02
     out_of_bounds: 0.05
 
+  passing_only: &passing_only_rw
+    proximity: 0.1
+    kick: 0.3
+    pass_forward: 5.0
+    spread: 0.3
+    pass_to_shot: 1.0
+    spacing: 0.02
+    out_of_bounds: 0.05
+
 stages:
   - name: "1vs0"
     <<: *defaults
@@ -277,6 +286,64 @@ stages:
   - name: "2vs2block_passing"
     <<: *defaults
     num_minibatches: 16    # was 32, doubles minibatch from 2,048 to 4,096
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Block"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *quality_passing_block_rw
+  
+  - name: "2vs0passing_only"
+    <<: *defaults
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *passing_only_rw
+
+  - name: "2vs2passing_only"
+    <<: *defaults
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Block"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *passing_only_rw
+
+  - name: "2vs0passing_to_goal"
+    <<: *defaults
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *quality_passing_rw
+
+  - name: "2vs2passing_to_goal"
+    <<: *defaults
+    total_steps: 8000000
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2

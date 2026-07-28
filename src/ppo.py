@@ -87,26 +87,22 @@ CLI_FIELDS: dict[str, str] = {
     "clip_coef": "the surrogate clipping coefficient",
     "clip_vloss": "Toggles whether or not to use a clipped loss for the value function, as per the paper.",
     "ent_coef": "initial coefficient of the entropy bonus (annealed linearly to final_ent_coef)",
-    # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef)":,
-    # a decaying entropy bonus buys exploration early (finding ball/goal at all),
-    # without keeping the policy noisy late in training,
     "final_ent_coef": "final entropy coefficient after linear annealing from ent_coef over total_timesteps",
     "vf_coef": "coefficient of the value function",
     "max_grad_norm": "the maximum norm for the gradient clipping",
     "target_kl": "the target KL divergence threshold",
-    "rpo_alpha": "the alpha parameter for RPO", # Best values between 0.5 to 0.1
+    "rpo_alpha": "the alpha parameter for RPO",
 
-
-    # Agent architecture arguments,
+    # Agent architecture arguments
     "agent_type": "the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer",
     "d_model": "(transformer) the model/embedding dimension",
     "n_layers": "(transformer) the number of encoder layers",
     "n_heads": "(transformer) the number of attention heads (must divide d_model)",
     "ff_dim": "(transformer) the feedforward dimension inside encoder layers",
-    "dropout": "(transformer) dropout inside encoder layers", # Should not be used (RPO/PPO regularize with action-mean perturbation and sampling noise),
+    "dropout": "(transformer) dropout inside encoder layers",
     "critic_pooling": "(transformer) how the critic pools entity tokens into a scalar value",
 
-    # to be filled in runtime,
+    # to be filled in runtime
     "config": "path to yaml file providing configuration training stages and environments",
     "stage_name": "which stage of the config file should be executed. None: execute all stages in Order",
     "rewards": "name of a reward_templates entry that overrides every run stage's reward weights (e.g. --rewards coop)",
@@ -121,14 +117,9 @@ Args = make_dataclass(
 
 
 def get_explicit_args(args_cls, parsed_args) -> dict:
-    """
-    Return only the fields that were explicitly passed on the CLI,
-    by diffing `parsed_args` against a freshly-constructed default instance.
-    """
-    defaults = tyro.cli(args_cls, args=[])  # parse with no CLI args → pure defaults
+    defaults = tyro.cli(args_cls, args=[])
     parsed_dict = asdict(parsed_args)
     default_dict = asdict(defaults)
-
     explicit = {
         k: v for k, v in parsed_dict.items()
         if v != default_dict.get(k)
@@ -137,9 +128,6 @@ def get_explicit_args(args_cls, parsed_args) -> dict:
 
 
 def upload_model_artifact(model_path: str, stage_id: int, stage_name: str, global_step: int, is_final: bool):
-    """Upload a saved .cleanrl_model checkpoint to wandb as a versioned Artifact.
-    No-op if wandb tracking isn't active (call site should still gate on is_main/config.track,
-    this is just a safety net in case it's called from elsewhere)."""
     if wandb.run is None:
         return
     artifact = wandb.Artifact(
@@ -163,20 +151,14 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
              environment_args: Optional[dict] = None):
     def thunk():
         if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array", **(environment_args
-                                                               or {}))
+            env = gym.make(env_id, render_mode="rgb_array", **(environment_args or {}))
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
             env = gym.make(env_id, **(environment_args or {}))
-        # flatten only for the MLP; the transformer agent skips it — flattening
-        # would destroy the per-entity structure it re-parses into tokens
         if flatten:
             env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
-        # no NormalizeObservation/clip here: our rSoccer-based envs already normalize
-        # observations themselves, so a running-stats wrapper on top would rescale
-        # an already-bounded signal against a moving mean/variance for no benefit
         env = gym.wrappers.NormalizeReward(env, gamma=gamma)
         env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))  # pyright: ignore[reportArgumentType, reportCallIssue]
         return env
@@ -206,7 +188,6 @@ def run_stage(
 
     print(f"steps: {stage.steps} , iterations: {iterations} ")
 
-    #set new environment
     agent.set_env(envs)
 
     def save_checkpoint(sig=None, frame=None):
@@ -217,14 +198,11 @@ def run_stage(
         if is_main and config.track:
             upload_model_artifact(model_path, stage_id, stage.name, global_step, is_final=False)
 
-    #install signal handler
     signal.signal(signal.SIGTERM, save_checkpoint)
     signal.signal(signal.SIGINT, save_checkpoint)
 
     scheduler = None
     if config.anneal_lr:
-        # per-stage: total optimizer steps must use this stage's own num_minibatches,
-        # not the global config default, since batch/minibatch sizing is now per-stage
         total_optimizer_steps = iterations * config.update_epochs * stage_num_minibatches
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
@@ -235,7 +213,6 @@ def run_stage(
             min_lr_ratio=config.min_lr_ratio,
         )
 
-    # ALGO Logic: Storage setup
     obs = torch.zeros((stage.steps, local_num_envs) + envs.single_observation_space.shape).to(device)  # pyright: ignore[reportOperatorIssue]
     actions = torch.zeros((stage.steps, local_num_envs) + envs.single_action_space.shape).to(device)
     logprobs = torch.zeros((stage.steps, local_num_envs)).to(device)
@@ -243,7 +220,6 @@ def run_stage(
     dones = torch.zeros((stage.steps, local_num_envs)).to(device)
     values = torch.zeros((stage.steps, local_num_envs)).to(device)
 
-    # For wandb video upload
     video_dir = f"videos/{run_name}"
     videos_seen: set[str] = set()
     videos_sizes: dict[str, int] = {}
@@ -256,11 +232,13 @@ def run_stage(
     last_save_step = 0
 
     for iteration in range(1, iterations + 1):
-        # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
-        # a decaying entropy bonus buys exploration early (finding ball/goal at all)
-        # without keeping the policy noisy late in training
         frac = min(global_step / config.total_timesteps, 1.0)
         ent_coef = config.ent_coef + (config.final_ent_coef - config.ent_coef) * frac
+
+        # [MUSKAN] Rollout accumulators for scale-invariant metrics
+        rollout_passes = 0
+        rollout_goals = 0
+        rollout_episodes = 0
 
         for step in range(0, stage.steps):
             global_step += config.num_envs
@@ -268,44 +246,53 @@ def run_stage(
             obs[step] = next_obs
             dones[step] = next_done
 
-            # ALGO LOGIC: action logic
             with torch.no_grad():
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten()
             actions[step] = action
             logprobs[step] = logprob
 
-            # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, reward, terminations, truncations, infos = envs.step(action.cpu().numpy())
             next_done = np.logical_or(terminations, truncations)
             rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
 
-            #fixed logging (rank 0 only; its envs are an accepted approximation for the parallel runs)
+            # logging (rank 0 only)
             if writer is not None and "episode" in infos:
                 for i, r in enumerate(infos["episode"]["r"]):
                     if infos["_episode"][i]:
                         print(f"global_step={global_step}, episodic_return={r:.2f}")
                         writer.add_scalar("charts/episodic_return", r, global_step)
                         writer.add_scalar("charts/episodic_length", infos["episode"]["l"][i], global_step)
-                        # Log custom cooperation metrics [MUSKAN]
-                        try:
-                            env = envs.envs[i].unwrapped
-                            if hasattr(env, 'episode_pass_count'):
-                                writer.add_scalar("charts/episode_passes", env.episode_pass_count, global_step)
-                                writer.add_scalar("charts/episode_goals", env.episode_goal_count, global_step)
-                                if env.episode_pass_count > 0:
-                                    ratio = 1.0 if env.episode_goal_count > 0 else 0.0
-                                    writer.add_scalar("charts/pass_to_goal_ratio", ratio, global_step)
-                            for name, val in env.episode_reward_breakdown.items():
-                                writer.add_scalar(f"rewards/{name}", val, global_step)
-                        except Exception:
-                            pass
+
+                        # [MUSKAN] Accumulate pass/goal counts per completed episode
+                        rollout_episodes += 1
+                        if "episode_pass_count" in infos and infos["episode_pass_count"] is not None:
+                            pc = infos["episode_pass_count"][i]
+                            gc = infos["episode_goal_count"][i]
+                            if pc is not None:
+                                rollout_passes += int(pc)
+                            if gc is not None:
+                                rollout_goals += int(gc)
+
+                        # [MUSKAN] Per-reward-term breakdown
+                        if "episode_reward_breakdown" in infos:
+                            for name, arr in infos["episode_reward_breakdown"].items():
+                                if not name.startswith("_"):
+                                    writer.add_scalar(f"rewards/{name}", arr[i], global_step)
 
             # save checkpoint
             if is_main and config.save_steps > 0 and global_step - last_save_step >= config.save_steps:
                 save_checkpoint()
                 last_save_step = global_step
+
+        # [MUSKAN] Log rollout-level metrics after each rollout — scale invariant
+        if writer is not None and rollout_episodes > 0:
+            print(f"ROLLOUT: episodes={rollout_episodes}, passes={rollout_passes}, goals={rollout_goals}, passes/ep={rollout_passes/rollout_episodes:.3f}, goals/ep={rollout_goals/rollout_episodes:.3f}")
+            writer.add_scalar("charts/passes_per_episode", rollout_passes / rollout_episodes, global_step)
+            writer.add_scalar("charts/goals_per_episode", rollout_goals / rollout_episodes, global_step)
+            if rollout_passes > 0:
+                writer.add_scalar("charts/pass_to_goal_ratio", rollout_goals / rollout_passes, global_step)
 
         # bootstrap value if not done
         with torch.no_grad():
@@ -323,7 +310,6 @@ def run_stage(
                 advantages[t] = lastgaelam = delta + config.gamma * config.gae_lambda * nextnonterminal * lastgaelam
             returns = advantages + values
 
-        # flatten the batch
         b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)  # pyright: ignore[reportOperatorIssue]
         b_logprobs = logprobs.reshape(-1)
         b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
@@ -331,7 +317,6 @@ def run_stage(
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
 
-        # Optimizing the policy and value network
         b_inds = np.arange(local_batch_size)
         clipfracs = []
         for epoch in range(config.update_epochs):
@@ -345,7 +330,6 @@ def run_stage(
                 ratio = logratio.exp()
 
                 with torch.no_grad():
-                    # calculate approx_kl http://joschu.net/blog/kl-approx.html
                     old_approx_kl = (-logratio).mean()
                     approx_kl = ((ratio - 1) - logratio).mean()
                     clipfracs += [((ratio - 1.0).abs() > config.clip_coef).float().mean().item()]
@@ -354,12 +338,10 @@ def run_stage(
                 if config.norm_adv:
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
 
-                # Policy loss
                 pg_loss1 = -mb_advantages * ratio
                 pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - config.clip_coef, 1 + config.clip_coef)
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
-                # Value loss
                 newvalue = newvalue.view(-1)
                 if config.clip_vloss:
                     v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
@@ -380,7 +362,6 @@ def run_stage(
                 optimizer.zero_grad()
                 loss.backward()
                 if is_distributed:
-                    # average grads across ranks so every rank takes the same step
                     for param in agent.parameters():
                         if param.grad is not None:
                             dist.all_reduce(param.grad.data, op=dist.ReduceOp.AVG)
@@ -390,7 +371,6 @@ def run_stage(
                     scheduler.step()
 
             if config.target_kl is not None:
-                # break must be unanimous across ranks or all_reduce below deadlocks
                 kl_stop = torch.tensor(float(approx_kl > config.target_kl), device=device)
                 if is_distributed:
                     dist.all_reduce(kl_stop, op=dist.ReduceOp.MAX)
@@ -401,11 +381,7 @@ def run_stage(
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
-        # TRY NOT TO MODIFY: record rewards for plotting purposes
         if is_main and writer is not None:
-            # logged every iteration (not just at stage boundaries) so the line
-            # renders as a proper step function instead of being linearly
-            # interpolated across two sparse points spanning the whole stage
             writer.add_scalar("charts/stage_id", stage_id, global_step)
             writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
             writer.add_scalar("charts/entropy_coefficient", ent_coef, global_step)
@@ -440,13 +416,10 @@ def run_stage(
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    # load stages with environment arguments from config.yml
     explicit_args = get_explicit_args(Args, args)
     config = load_config(args.config)
     config = override_with_args(explicit_args, config)
 
-    # --rewards <template>: overwrite every stage's reward weights with the named
-    # reward_templates entry (e.g. run 2vs2ou with the `coop` weights)
     if config.rewards is not None:
         if config.rewards not in config.reward_templates:
             raise ValueError(
@@ -457,56 +430,35 @@ if __name__ == "__main__":
         for stage in config.stages:
             stage.environment.rewards = dict(template)
 
-    # single-node torchrun; LOCAL_RANK doubles as global rank. CUDA init is
-    # deferred to device selection below, after AsyncVectorEnv forks workers.
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     is_distributed = world_size > 1
     is_main = local_rank == 0
 
-    # NOTE: batch_size / minibatch_size / num_minibatches are computed per-stage,
-    # inside the stage loop below, since each stage may have its own `steps` and
-    # (optionally) its own `num_minibatches` override. There is no longer a
-    # global pre-loop computation — it was dead code referencing a nonexistent
-    # config.num_steps and was overwritten before first use anyway.
-
     run_name = f"{config.env_id}__{config.exp_name}__{config.seed}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    # Only rank 0 tracks/logs/saves; `writer is None` marks a non-main rank below.
 
-    # select stages from config
     if config.stage_name:
         stage_ids = config.get_stages_from_name(config.stage_name)
 
-    # calculate total_timesteps
     steps = sum(s.steps if s.steps is not None else config.num_envs for s in config.stages)
     config.total_timesteps = sum(stage.total_steps for stage in config.stages)
 
     writer = None
     if is_main:
         if config.track:
-            # silence DeprecationWarnings from wandb's Sentry telemetry (its own crash
-            # reporting only; unrelated to our logging)
             os.environ.setdefault("WANDB_ERROR_REPORTING", "false")
-
             wandb.init(
                 project=config.wandb_project_name,
                 entity=config.wandb_entity,
                 sync_tensorboard=True,
                 config=vars(args),
                 name=run_name,
-                # off: wandb's gym integration patches RecordVideo.close to read
-                # `self.enabled`, which gymnasium 1.x lacks, crashing on env close
                 monitor_gym=False,
                 save_code=True,
             )
-
-            # use global step as x axis in wandb
             wandb.define_metric("global_step")
             wandb.define_metric("*", step_metric="global_step")
-
             if config.capture_video:
-                # sync_tensorboard owns the wandb step, so give videos an explicit
-                # x-axis via a custom step metric (see utils.log_new_videos)
                 wandb.define_metric("media/video", step_metric="global_step")
         writer = SummaryWriter(f"runs/{run_name}")
         config_model = config.model_dump()
@@ -519,7 +471,6 @@ if __name__ == "__main__":
         if is_main and config.track:
             wandb.config.update(config_model, allow_val_change=True)
 
-    # TRY NOT TO MODIFY: seeding
     utils.set_seed(config.seed, config.torch_deterministic)
 
     stage_ids = config.get_stages_from_name(config.stage_name)
@@ -535,8 +486,6 @@ if __name__ == "__main__":
         stage = config.stages[stage_id]
         env_args = stage.environment.model_dump()
 
-        # calculate iterations from total_steps per stage
-        # total_steps = iterations * num_envs * stage.steps
         iterations = stage.total_steps // (config.num_envs * stage.steps)
 
         print(f"running stage: {stage_id} : {stage.name}")
@@ -544,8 +493,6 @@ if __name__ == "__main__":
         assert config.num_envs % world_size == 0, "num_envs must be divisible by world_size"
         local_num_envs = config.num_envs // world_size
 
-        # per-stage num_minibatches: use the stage's own override if given,
-        # otherwise fall back to the global config default
         stage_num_minibatches = (
             stage.num_minibatches if stage.num_minibatches is not None else config.num_minibatches
         )
@@ -566,9 +513,8 @@ if __name__ == "__main__":
                 make_env(config.env_id, i, config.capture_video and is_main, run_name, config.gamma,
                           flatten=config.agent_type == "mlp", environment_args=env_args)
                 for i in range(local_num_envs)
-
             ],
-            context="spawn" # spawn new process each time otherwise deadlock at 2nd stage
+            context="spawn"
         )
         assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
@@ -590,8 +536,7 @@ if __name__ == "__main__":
 
             if config.load_model:
                 print(f"loading model weights from: {config.load_model}")
-                agent.load_state_dict(torch.load(config.load_model,
-                                                 map_location=device))
+                agent.load_state_dict(torch.load(config.load_model, map_location=device))
 
             no_decay = {"actor_logstd", "critic.pool_query"}
             decay_params = [p for n, p in agent.named_parameters() if p.ndim >= 2 and n not in no_decay]
@@ -608,7 +553,6 @@ if __name__ == "__main__":
                 torch.manual_seed(config.seed + local_rank)
                 np.random.seed(config.seed + local_rank)
 
-        # defining opponent agent
         if agent_opponent is None and stage.environment.opponent_strategy == "Agent" and stage.environment.opponent_model:
             agent_opponent = Agent(
                 envs, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
@@ -616,14 +560,7 @@ if __name__ == "__main__":
                 dropout=config.dropout, critic_pooling=config.critic_pooling,
             ).to(device)
             agent_opponent.load_state_dict(torch.load(stage.environment.opponent_model, map_location=device))
-            envs.call("set_opponent_agent", agent_opponent) 
-            
-
-        
-
-
-
-            
+            envs.call("set_opponent_agent", agent_opponent)
 
         global_step = run_stage(
             stage, stage_id, envs, iterations, agent, optimizer, device, writer,

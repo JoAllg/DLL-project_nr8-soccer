@@ -135,6 +135,15 @@ class SSLDynamicRobots(SSLBaseEnv):
         if self.opponent_policy is not None and hasattr(self.opponent_policy, "reset"):
             self.opponent_policy.reset()
         return super().reset(seed=seed, options=options)
+    
+    def step(self, action):
+        obs, reward, terminated, truncated, info = super().step(action)
+        # Only add episode metrics when episode ends
+        # if terminated or truncated:
+        info["episode_pass_count"] = self.episode_pass_count
+        info["episode_goal_count"] = self.episode_goal_count
+        info["episode_reward_breakdown"] = dict(self.episode_reward_breakdown)
+        return obs, reward, terminated, truncated, info
 
     def _build_obs_for(self, my_robots, opp_robots, mirror: bool):
         """mirror=True flips x and heading so the caller's team is always
