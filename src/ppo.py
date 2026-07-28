@@ -177,7 +177,7 @@ def upload_model_artifact(model_path: str, stage_id: int, stage_name: str, globa
     wandb.log_artifact(artifact, aliases=aliases)
 
 
-def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
+def make_env(env_id, idx, capture_video, video_folder, gamma, flatten=True,
              environment_args: Optional[dict] = None):
     def thunk():
         # runs inside the worker process: keep env stepping (and any opponent-agent
@@ -186,7 +186,7 @@ def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array", **(environment_args
                                                                or {}))
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+            env = gym.wrappers.RecordVideo(env, video_folder)
         else:
             env = gym.make(env_id, **(environment_args or {}))
         # flatten only for the MLP; the transformer agent skips it — flattening
@@ -265,7 +265,10 @@ def run_stage(
     values = torch.zeros((stage.steps, local_num_envs)).to(device)
 
     # For wandb video upload
-    video_dir = f"videos/{run_name}"
+    # separate subfolder per stage: RecordVideo's episode_id restarts at 0 on every
+    # new stage's env, so a shared folder would let stage N+1 overwrite stage N's
+    # video files (same name) before log_new_videos ever notices the new content
+    video_dir = f"videos/{run_name}/stage{stage_id}_{stage.name}"
     videos_seen: set[str] = set()
     videos_sizes: dict[str, int] = {}
 
@@ -627,9 +630,10 @@ if __name__ == "__main__":
 
         utils.set_seed(config.seed, config.torch_deterministic)
 
+        video_folder = f"videos/{run_name}/stage{stage_id}_{stage.name}"
         envs = gym.vector.AsyncVectorEnv(
             [
-                make_env(config.env_id, i, config.capture_video and is_main, run_name, config.gamma,
+                make_env(config.env_id, i, config.capture_video and is_main, video_folder, config.gamma,
                           flatten=config.agent_type == "mlp", environment_args=env_args)
                 for i in range(local_num_envs)
 

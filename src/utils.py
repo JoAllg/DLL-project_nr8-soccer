@@ -16,9 +16,9 @@ def log_new_videos(video_dir, seen, sizes, step):
     polls (guarding against half-written files); `sizes` carries the previous poll's
     sizes and `seen` the filenames already uploaded.
 
-    `step` is logged as the `media/video_step` metric (the video's step_metric, defined
-    at wandb.init) rather than passed as wandb.log(step=...), which sync_tensorboard
-    ignores.
+    `step` is logged as the `global_step` field (the video's step_metric, defined
+    at wandb.init as `wandb.define_metric("media/video", step_metric="global_step")`)
+    rather than passed as wandb.log(step=...), which sync_tensorboard ignores.
     """
     import wandb
 
@@ -32,7 +32,7 @@ def log_new_videos(video_dir, seen, sizes, step):
         except OSError:
             continue
         if sizes.get(path) == cur and cur > 0:
-            wandb.log({"media/video": wandb.Video(path, format="mp4"), "media/video_step": step})
+            wandb.log({"media/video": wandb.Video(path, format="mp4"), "global_step": step})
             seen.add(path)
             sizes.pop(path, None)
         else:
