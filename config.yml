@@ -158,8 +158,8 @@ reward_templates:
     spread: 0.05
     spacing: 0.3
     out_of_bounds: 0.05
-    off_ball_positioning: 0.1
-    receiver_positioning: 0.1
+    off_ball_positioning: 0.2
+    receiver_positioning: 0.3
 
 stages:
   - name: "1vs0yellow-half"

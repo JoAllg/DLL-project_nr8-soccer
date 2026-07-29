@@ -652,19 +652,21 @@ class SSLDynamicRobots(SSLBaseEnv):
         max_x, max_y = self.allowed_positions_blue["max"]
 
         # Robot 0: attacker - spawns behind the ball
+        robot0_max_x = np.clip(pos_frame.ball.x - 0.3, min_x * half_length, max_x * half_length)
         pos_frame.robots_blue[0] = Robot(
-            x=np.random.uniform(min_x * half_length, min(pos_frame.ball.x - 0.3, max_x * half_length)),
+            x=np.random.uniform(min_x * half_length, robot0_max_x),
             y=np.random.uniform(min_y * half_width, max_y * half_width),
             theta=np.random.uniform(0, 360),
-        )
+            )
 
         # Robot 1+: receiver - spawns ahead of the ball toward goal
+        robot_min_x = np.clip(pos_frame.ball.x + 0.3, min_x * half_length, max_x * half_length)
         for i in range(1, self.n_robots_blue):
             pos_frame.robots_blue[i] = Robot(
-                x=np.random.uniform(max(pos_frame.ball.x + 0.3, min_x * half_length), max_x * half_length),
+                x=np.random.uniform(robot_min_x, max_x * half_length),
                 y=np.random.uniform(min_y * half_width, max_y * half_width),
                 theta=np.random.uniform(0, 360),
-            ) 
+                )
 
         for i in range(self.n_robots_yellow):
             min_x, min_y = self.allowed_positions_yellow["min"]
