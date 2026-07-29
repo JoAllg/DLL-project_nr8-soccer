@@ -133,6 +133,30 @@ reward_templates:
     spacing: 0.02
     out_of_bounds: 0.05
 
+  passing_only_v2: &passing_only_v2_rw
+    proximity: 0.1
+    kick: 0.3
+    pass_forward: 20.0
+    spread: 0.05
+    spacing: 0.3
+    out_of_bounds: 0.05
+    off_ball_positioning: 0.2
+    receiver_positioning: 0.3
+    kick_without_receiver: 0.3
+
+  passing_to_goal_v2: &passing_to_goal_v2_rw
+    goal: 50
+    goal_close: 50
+    progress: 0.6
+    proximity: 0.1
+    kick_forward: 0.1
+    pass_forward: 10.0
+    spread: 0.05
+    spacing: 0.3
+    out_of_bounds: 0.05
+    off_ball_positioning: 0.1
+    receiver_positioning: 0.1
+
 stages:
   - name: "1vs0"
     <<: *defaults
@@ -356,3 +380,48 @@ stages:
         <<: *yellow_half
       rewards:
         <<: *quality_passing_block_rw
+  
+  - name: "2vs0passing_only_v2"
+    <<: *defaults
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *passing_only_v2_rw
+
+  - name: "2vs2passing_only_v2"
+    <<: *defaults
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Block"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *passing_only_v2_rw
+
+  - name: "2vs2passing_to_goal_v2"
+    <<: *defaults
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Block"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *passing_to_goal_v2_rw
