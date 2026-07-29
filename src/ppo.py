@@ -342,11 +342,8 @@ def run_stage(
         t_rollout_end = time.time()
         # [MUSKAN] Log rollout-level metrics after each rollout — scale invariant
         if writer is not None and rollout_episodes > 0:
-            print(f"ROLLOUT: episodes={rollout_episodes}, passes={rollout_passes}, goals={rollout_goals}, passes/ep={rollout_passes/rollout_episodes:.3f}, goals/ep={rollout_goals/rollout_episodes:.3f}")
             writer.add_scalar("charts/passes_per_episode", rollout_passes / rollout_episodes, global_step)
             writer.add_scalar("charts/goals_per_episode", rollout_goals / rollout_episodes, global_step)
-            if rollout_passes > 0:
-                writer.add_scalar("charts/pass_to_goal_ratio", rollout_goals / rollout_passes, global_step)
 
         # bootstrap value if not done
         with torch.no_grad():
