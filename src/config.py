@@ -117,7 +117,7 @@ class Config(BaseModel):
     # total timesteps of the experiments"""
     num_envs: int = 0
     # the number of parallel game environments (0 -> envs_per_cpu * available CPUs)"""
-    envs_per_cpu: int = 2
+    envs_per_cpu: int = 1
     # multiplier used to derive num_envs from the available CPU count when num_envs is unset"""
     num_steps: int = 2 * 1024
     # the number of steps to run in each environment per policy rollout (see apply_num_steps)"""

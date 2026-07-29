@@ -499,6 +499,11 @@ if __name__ == "__main__":
     # rollout length: a stage's own `steps` wins, an explicit --num-steps beats both
     config.apply_num_steps(force="num_steps" in explicit_args)
 
+    # default envs_per_cpu: 2 on GPU (cheap CPU-side env stepping vs. one shared GPU
+    # for the forward/backward pass), 1 on CPU-only; an explicit --envs-per-cpu wins
+    if "envs_per_cpu" not in explicit_args:
+        config.envs_per_cpu = 2 if (config.cuda and torch.cuda.is_available()) else 1
+
     # --rewards <template>: overwrite every stage's reward weights with the named
     # reward_templates entry (e.g. run 2vs2ou with the `coop` weights)
     if config.rewards is not None:
