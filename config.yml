@@ -101,6 +101,14 @@ reward_templates:
     out_of_bounds: 0.1
     # dribble: 0.05
 
+  standard_with_passing: &standard_passing_rw
+    proximity: 0.1
+    progress: 0.7
+    kick: 0.1
+    passing: 0.1
+    goal_close: 50
+    goal: 50
+
 stages:
   - name: "1vs0yellow-half"
     total_steps: 8000000
@@ -228,3 +236,16 @@ stages:
         <<: *ball_middle
       rewards:
         <<: *passing_rw
+        <<: *standard_rw
+
+  - name: "2vs0passing"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_right_before_goal
+      allowed_positions_blue:
+        <<: *right_third
+      rewards:
+        <<: *standard_passing_rw
