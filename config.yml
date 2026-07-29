@@ -160,6 +160,17 @@ reward_templates:
     out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
+  
+  passing_only_v3: &passing_only_v3_rw
+    proximity: 0.1
+    kick: 0.3
+    pass_forward: 50.0
+    spread: 0.05
+    spacing: 0.3
+    out_of_bounds: 0.05
+    off_ball_positioning: 0.2
+    receiver_positioning: 0.3
+    kick_without_receiver: 0.3
 
 stages:
   - name: "1vs0yellow-half"
@@ -428,3 +439,18 @@ stages:
         <<: *yellow_half
       rewards:
         <<: *passing_to_goal_v2_rw
+  
+  - name: "2vs2passing_only_v3"
+    <<: *defaults
+    environment:
+    n_robots_blue: 2
+    n_robots_yellow: 2
+    opponent_strategy: "Block"
+    allowed_positions_ball:
+      <<: *ball_middle
+    allowed_positions_blue:
+      <<: *blue_half
+    allowed_positions_yellow:
+      <<: *yellow_half
+    rewards:
+      <<: *passing_only_v3_rw
