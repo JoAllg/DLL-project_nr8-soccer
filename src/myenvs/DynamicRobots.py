@@ -519,6 +519,78 @@ class SSLDynamicRobots(SSLBaseEnv):
     def _reward_dribble(self):
         """1.0 while a teammate keeps the ball at its dribbler. Use a very small weight."""
         return 1.0 if any(robot.infrared for robot in self.frame.robots_blue.values()) else 0.0
+    
+    def _reward_off_ball_positioning(self):
+        """Penalize the non-closest robot for being near the ball. [MUSKAN Option 2]
+
+        Forces exactly one robot to engage the ball while the other stays away,
+        creating natural passer/receiver role differentiation.
+        Returns -1.0 per step the non-closest robot is within 1.0 * field_scale of ball.
+        """
+        if self.n_robots_blue < 2:
+            return 0.0
+        ball = self.frame.ball
+        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
+                 for rid, r in self.frame.robots_blue.items()}
+        closest_id = min(dists, key=dists.get)
+        penalty = 0.0
+        for rid, dist in dists.items():
+            if rid != closest_id and dist < 1.0 * self.field_scale:
+                penalty -= 1.0
+        return penalty
+
+    def _reward_receiver_positioning(self):
+        """Reward the non-ball robot for being ahead of the ball in a good receiving position. [MUSKAN Option 3]
+
+        Specifically: the non-closest robot gets reward for being:
+        - Ahead of the ball in x-direction (toward goal)
+        - Between 1.0 and 5.0 meters from the ball (reachable but not crowding)
+        Normalized by field length so max reward = 1.0.
+        """
+        if self.n_robots_blue < 2:
+            return 0.0
+        ball = self.frame.ball
+        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
+                 for rid, r in self.frame.robots_blue.items()}
+        closest_id = min(dists, key=dists.get)
+        reward = 0.0
+        for rid, robot in self.frame.robots_blue.items():
+            if rid == closest_id:
+                continue
+            x_ahead = robot.x - ball.x  # positive = ahead of ball toward goal
+            dist_to_ball = dists[rid]
+            if x_ahead > 0 and 1.0 * self.field_scale < dist_to_ball < 5.0 * self.field_scale:
+                reward += np.clip(x_ahead / self.field.length, 0.0, 1.0)
+        return reward
+
+    def _reward_kick_without_receiver(self):
+        """Penalize kicking when no teammate is in a good receiving position. [MUSKAN]
+
+        If robot A kicks but robot B is not positioned ahead of the ball,
+        the kick is likely a direct shot attempt rather than a pass setup.
+        Returns -1.0 when a kick happens without a receiver in position.
+        """
+        if self.last_frame is None or self.n_robots_blue < 2:
+            return 0.0
+        dvx = self.frame.ball.v_x - self.last_frame.ball.v_x
+        dvy = self.frame.ball.v_y - self.last_frame.ball.v_y
+        if np.hypot(dvx, dvy) < self.max_v:
+            return 0.0  # no kick happened this step
+
+        ball = self.frame.ball
+        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
+                 for rid, r in self.frame.robots_blue.items()}
+        closest_id = min(dists, key=dists.get)
+
+        for rid, robot in self.frame.robots_blue.items():
+            if rid == closest_id:
+                continue
+            x_ahead = robot.x - ball.x
+            dist = dists[rid]
+            if x_ahead > 0 and 1.0 * self.field_scale < dist < 5.0 * self.field_scale:
+                return 0.0  # teammate is in good position, kick is fine
+
+        return -1.0  # kicked without a teammate in receiving position
 
     def _get_initial_positions_frame(self):
 
