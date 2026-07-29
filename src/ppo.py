@@ -6,6 +6,7 @@ import time
 import warnings
 import signal
 from datetime import datetime
+import time
 
 from typing import Optional, Annotated
 
@@ -724,6 +725,7 @@ if __name__ == "__main__":
         )
 
         envs.close()
+        time.sleep(3)
 
     if writer is not None:
         writer.close()

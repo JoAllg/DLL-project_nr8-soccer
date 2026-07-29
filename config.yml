@@ -175,7 +175,8 @@ stages:
         <<: *solo_rw
 
   - name: "1vs0random"
-    total_steps: 10000000
+    <<: *defaults
+    total_steps: 8000000
     environment:
       n_robots_blue: 1
       n_robots_yellow: 0
@@ -184,6 +185,7 @@ stages:
 
   - name: "2vs0"
     <<: *defaults
+    total_steps: 8000000
     environment:
       n_robots_blue: 2
       n_robots_yellow: 0
@@ -329,7 +331,6 @@ stages:
   
   - name: "2vs0passing_only"
     <<: *defaults
-    total_steps: 8000000
     environment:
       n_robots_blue: 2
       n_robots_yellow: 0
@@ -342,7 +343,6 @@ stages:
 
   - name: "2vs2passing_only"
     <<: *defaults
-    total_steps: 8000000
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
@@ -371,7 +371,6 @@ stages:
 
   - name: "2vs2passing_to_goal"
     <<: *defaults
-    total_steps: 8000000
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
