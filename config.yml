@@ -452,5 +452,5 @@ stages:
         <<: *blue_half
       allowed_positions_yellow:
         <<: *yellow_half
-      ßrewards:
+      rewards:
         <<: *passing_only_v3_rw
