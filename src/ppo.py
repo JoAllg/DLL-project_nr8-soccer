@@ -279,7 +279,14 @@ def run_stage(
 
     last_save_step = 0
 
+    # throughput is measured per stage, not per run: episode length, robot count and
+    # env count all change at a stage boundary, and a run-wide average turns that step
+    # change into a slow decay that looks like a leak
+    stage_start_time = time.time()
+    stage_start_step = global_step
+
     for iteration in range(1, iterations + 1):
+        t_iter_start = time.time()
         # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
         # a decaying entropy bonus buys exploration early (finding ball/goal at all)
         # without keeping the policy noisy late in training
@@ -334,6 +341,8 @@ def run_stage(
                 save_checkpoint()
                 last_save_step = global_step
 
+        t_rollout_end = time.time()
+
         # bootstrap value if not done
         with torch.no_grad():
             next_value = agent.get_value(next_obs).reshape(1, -1)
@@ -357,6 +366,8 @@ def run_stage(
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
+
+        t_update_start = time.time()
 
         # Optimizing the policy and value network
         b_inds = np.arange(local_batch_size)
@@ -443,10 +454,24 @@ def run_stage(
             writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
             writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
             writer.add_scalar("losses/explained_variance", explained_var, global_step)
-            print("SPS:", int(global_step / (time.time() - start_time)))
+            t_now = time.time()
+            iter_seconds = max(t_now - t_iter_start, 1e-9)
+            iter_steps = config.num_envs * stage.steps
+            stage_sps = int((global_step - stage_start_step) / max(t_now - stage_start_time, 1e-9))
+
+            print("SPS:", stage_sps)
             print("global_step:", global_step)
             print("stage_id:", stage_id)
-            writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            # mean since this stage began, so a stage boundary resets the baseline
+            writer.add_scalar("charts/SPS", stage_sps, global_step)
+            # this iteration only — the one that reacts immediately to a slowdown
+            writer.add_scalar("charts/SPS_instant", int(iter_steps / iter_seconds), global_step)
+            # Performance analysis metrics:
+            writer.add_scalar("perf/rollout_seconds", t_rollout_end - t_iter_start, global_step)
+            writer.add_scalar("perf/gae_seconds", t_update_start - t_rollout_end, global_step)
+            writer.add_scalar("perf/update_seconds", t_now - t_update_start, global_step)
+            writer.add_scalar("perf/iteration_seconds", iter_seconds, global_step)
+            writer.add_scalar("perf/elapsed_hours", (t_now - start_time) / 3600, global_step)
 
         if is_main and config.track and config.capture_video:
             utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
