@@ -443,14 +443,14 @@ stages:
   - name: "2vs2passing_only_v3"
     <<: *defaults
     environment:
-    n_robots_blue: 2
-    n_robots_yellow: 2
-    opponent_strategy: "Block"
-    allowed_positions_ball:
-      <<: *ball_middle
-    allowed_positions_blue:
-      <<: *blue_half
-    allowed_positions_yellow:
-      <<: *yellow_half
-    rewards:
-      <<: *passing_only_v3_rw
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Block"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      ßrewards:
+        <<: *passing_only_v3_rw
