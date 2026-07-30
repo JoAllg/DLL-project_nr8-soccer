@@ -230,7 +230,7 @@ def run_stage(
     agent.set_env(envs)
 
     def save_checkpoint(sig=None, frame=None):
-        print(f"saving_model checkpoint...")
+        print("saving_model checkpoint...")
         model_path = f"runs/{run_name}/{config.exp_name}_stage{stage_id}_{stage.name}_steps_{global_step}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"[stage {stage_id} at steps {global_step}] model saved to {model_path}")

@@ -82,7 +82,6 @@ reward_templates:
     pass: 0.3
     dribble: 0.01
     spacing: 0.02
-    out_of_bounds: 0.05
     time: 0.001  # -1/episode at max_steps=1000
 
   # # "Annealed" late-stage variant of `coop`
@@ -95,7 +94,6 @@ reward_templates:
   #   pass: 0.3  # match
   #   dribble: 0.01  # match
   #   spacing: 0.02  # match
-  #   out_of_bounds: 0.05  # match
   #   time: 0.001  # match
 
   # Quality-passing: rewards forward passes, positioning, and assist->shot sequences [MUSKAN]
@@ -110,7 +108,6 @@ reward_templates:
     spread: 0.05
     pass_to_shot: 0.2
     spacing: 0.02
-    out_of_bounds: 0.05
 
   quality_passing_block: &quality_passing_block_rw
     goal: 50
@@ -123,7 +120,6 @@ reward_templates:
     spread: 0.1          # increase, need robots to separate against blocker
     pass_to_shot: 0.3    # increase, reward the full sequence
     spacing: 0.02
-    out_of_bounds: 0.05
 
   passing_only: &passing_only_rw
     proximity: 0.1
@@ -133,7 +129,6 @@ reward_templates:
     spread: 0.3
     pass_to_shot: 1.0
     spacing: 0.02
-    out_of_bounds: 0.05
 
   passing_only_v2: &passing_only_v2_rw
     proximity: 0.1
@@ -142,7 +137,6 @@ reward_templates:
     pass_forward: 13.0
     spread: 0.05
     spacing: 0.3
-    out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
     kick_without_receiver: 0.3
@@ -157,7 +151,6 @@ reward_templates:
     pass_forward: 6.0
     spread: 0.05
     spacing: 0.3
-    out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
   
@@ -168,7 +161,6 @@ reward_templates:
     pass_forward: 30.0
     spread: 0.05
     spacing: 0.3
-    out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
     kick_without_receiver: 0.3

@@ -88,7 +88,6 @@ reward_templates:
     pass: 0.3
     dribble: 0.01
     spacing: 0.03
-    out_of_bounds: 0.05
 
   # "Annealed" late-stage variant of `coop`
   reduced: &reduced_rw
@@ -100,7 +99,6 @@ reward_templates:
     pass: 0.3  # match
     dribble: 0.01  # match
     spacing: 0.03  # match
-    out_of_bounds: 0.05  # match
     time: 0.001  # match
 
   # Passing-dominant stage: pass pulse outweighs a full progress run
@@ -115,7 +113,6 @@ reward_templates:
     pass: 5.0  # boosted 16x (coop 0.3): ~2 passes == one progress run
     dribble: 0.03  # raised (coop 0.01): hold ball to aim
     spacing: 0.1  # raised (coop 0.03): spread out to open pass lanes
-    out_of_bounds: 0.1  # raised (coop 0.05): stray passes cost something
     time: 0.001  # match coop
 
   # Quality-passing: rewards forward passes, positioning, and assist->shot sequences [MUSKAN]
@@ -130,7 +127,6 @@ reward_templates:
     spread: 0.05
     pass_to_shot: 0.2
     spacing: 0.02
-    out_of_bounds: 0.05
     time: 0.001
 
   quality_passing_block: &quality_passing_block_rw
@@ -144,7 +140,6 @@ reward_templates:
     spread: 0.1          # increase, need robots to separate against blocker
     pass_to_shot: 0.3    # increase, reward the full sequence
     spacing: 0.02
-    out_of_bounds: 0.05
     time: 0.001
 
   passing_only: &passing_only_rw
@@ -155,7 +150,6 @@ reward_templates:
     spread: 0.3
     pass_to_shot: 1.0
     spacing: 0.02
-    out_of_bounds: 0.05
     time: 0.001
 
   passing_only_v2: &passing_only_v2_rw
@@ -165,7 +159,6 @@ reward_templates:
     pass_forward: 13.0
     spread: 0.05
     spacing: 0.3
-    out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
     kick_without_receiver: 0.3
@@ -181,7 +174,6 @@ reward_templates:
     pass_forward: 6.0
     spread: 0.05
     spacing: 0.3
-    out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
     time: 0.001
@@ -193,7 +185,6 @@ reward_templates:
     pass_forward: 30.0
     spread: 0.05
     spacing: 0.3
-    out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
     time: 0.001

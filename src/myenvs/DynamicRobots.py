@@ -108,6 +108,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         # Pass-to-shot tracking
         self.steps_since_pass = 0
         self.pass_pending_shot = False
+        self._pass_counted_step = -1
 
         self.opponent_policy = None
         if opponent_strategy:
@@ -492,20 +493,40 @@ class SSLDynamicRobots(SSLBaseEnv):
         - Reception = proximity, not dribbling.
         - d_min minimal ball travel distance
         """
+        catch, _ = self._detect_reception()
+        return catch
+
+    def _reward_pass_forward(self):
+        """Like _reward_pass but also scales by how much the pass advanced the ball toward the goal.
+
+        A forward pass toward goal scores up to 1.0; a backward or sideways pass scores 0.0.
+        Encourages passes that build toward scoring, not just any pass between teammates.
+        """
+        catch, direction_score = self._detect_reception()
+        return catch * direction_score
+
+    def _detect_reception(self):
+        """Shared detector for _reward_pass / _reward_pass_forward.
+
+        Returns (catch, direction_score), both 0.0 when no pass arrives this step.
+
+        `catch` grades how well the recieving robot is able to catch the ball (low ball speed required)
+        """
         if self.n_robots_blue < 2 or self.last_frame is None or self.last_touch_id is None:
-            return 0.0
+            return 0.0, 0.0
         if self.last_touch_pos is None:
-            return 0.0
+            return 0.0, 0.0
 
         d_min = 2.0 * self.field_scale  # min pass length to count (m) (should be same as minimum distance in distance reward)
         recv_radius = 0.25 * self.field_scale  # catch radius (we don't expect the robot to dribble with the ball directly)
+        max_catch_speed = self.max_v / 3.0  # ball faster than this cannot be brought under control
 
         ball = np.array([self.frame.ball.x, self.frame.ball.y])
         last_ball = np.array([self.last_frame.ball.x, self.last_frame.ball.y])
 
         # kick/pass must carry ball aways from passer for at least d_min
         if np.linalg.norm(ball - self.last_touch_pos) <= d_min:
-            return 0.0
+            return 0.0, 0.0
 
         for id, robot in self.frame.robots_blue.items():
             if id == self.last_touch_id:
@@ -514,45 +535,20 @@ class SSLDynamicRobots(SSLBaseEnv):
             now_near = np.linalg.norm(ball - pos) <= recv_radius
             was_near = np.linalg.norm(last_ball - pos) <= recv_radius
             if now_near and not was_near:  # ball was not near to the robot that accepts the ball
-                self.pass_pending_shot = True
-                self.steps_since_pass = 0
-                return 1.0
-        return 0.0
-
-    def _reward_pass_forward(self):
-        """Like _reward_pass but scales reward by how much the pass advanced the ball toward the goal.
-
-        A forward pass toward goal scores up to 1.0; a backward or sideways pass scores 0.0.
-        Encourages passes that build toward scoring, not just any pass between teammates.
-        """
-        if self.n_robots_blue < 2 or self.last_frame is None or self.last_touch_id is None:
-            return 0.0
-        if self.last_touch_pos is None:
-            return 0.0
-
-        d_min = 2.0 * self.field_scale
-        recv_radius = 0.25 * self.field_scale
-
-        ball = np.array([self.frame.ball.x, self.frame.ball.y])
-        last_ball = np.array([self.last_frame.ball.x, self.last_frame.ball.y])
-
-        if np.linalg.norm(ball - self.last_touch_pos) <= d_min:
-            return 0.0
-
-        for id, robot in self.frame.robots_blue.items():
-            if id == self.last_touch_id:
-                continue
-            pos = np.array([robot.x, robot.y])
-            now_near = np.linalg.norm(ball - pos) <= recv_radius
-            was_near = np.linalg.norm(last_ball - pos) <= recv_radius
-            if now_near and not was_near:
-                self.episode_pass_count += 1
+                # 1.0 for a ball arriving at rest, fading to 0.0 at max_catch_speed
+                v_ball = np.hypot(self.frame.ball.v_x, self.frame.ball.v_y)
+                catch = float(np.clip(1.0 - v_ball / max_catch_speed, 0.0, 1.0))
                 x_gain = ball[0] - self.last_touch_pos[0]
-                direction_score = np.clip(x_gain / self.field.length, 0.0, 1.0)
+                direction_score = float(np.clip(x_gain / self.field.length, 0.0, 1.0))
+                # count the reception once per step: both rewards may be configured
+                # at the same time and each calls this detector on the same frame
+                if self._pass_counted_step != self.episode_steps:
+                    self._pass_counted_step = self.episode_steps
+                    self.episode_pass_count += 1
                 self.pass_pending_shot = True
                 self.steps_since_pass = 0
-                return direction_score
-        return 0.0
+                return catch, direction_score
+        return 0.0, 0.0
 
     def _reward_spread(self):
         """Reward robots for maintaining spatial separation from each other.
@@ -685,6 +681,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.last_touch_was_blue = False
         self.steps_since_pass = 0
         self.pass_pending_shot = False
+        self._pass_counted_step = -1
         pos_frame = Frame()
 
         half_length = self.field.length / 2
