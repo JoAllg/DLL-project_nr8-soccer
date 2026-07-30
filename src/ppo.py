@@ -474,6 +474,13 @@ def run_stage(
             writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
             writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
             writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
+            # per-action-dim exploration noise; sigma pinned at the LOGSTD_MAX cap
+            # means the policy cannot express intermediate commands (e.g. partial kick strength)
+            action_std = torch.exp(
+                agent.actor_logstd.clamp(agent.LOGSTD_MIN, agent.LOGSTD_MAX)
+            ).detach()[0]
+            for dim, std in enumerate(action_std):
+                writer.add_scalar(f"perf/action_std_{dim}", std.item(), global_step)
             writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
             writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
             writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)

@@ -84,36 +84,38 @@ reward_templates:
     goal_close: 50
     progress: 0.8
     proximity: 0.1
-    kick_forward: 0.4
-    pass: 0.3
-    dribble: 0.01
+    kick_forward: 0.1
+    kick: 0.25
+    pass: 0.35
+    dribble: 0.02
     spacing: 0.03
+    time: 0.001
 
-  # "Annealed" late-stage variant of `coop`
-  reduced: &reduced_rw
-    goal: 50  # match
-    goal_close: 50  # match
-    progress: 0.8  # match
-    proximity: 0.15  # faded (coop 0.3)
-    kick_forward: 0.2  # faded (coop 0.4)
-    pass: 0.3  # match
-    dribble: 0.01  # match
-    spacing: 0.03  # match
-    time: 0.001  # match
+  # # "Annealed" late-stage variant of `coop`
+  # reduced: &reduced_rw
+  #   goal: 50  # match
+  #   goal_close: 50  # match
+  #   progress: 0.8  # match
+  #   proximity: 0.15  # faded (coop 0.3)
+  #   kick_forward: 0.2  # faded (coop 0.4)
+  #   pass: 0.3  # match
+  #   dribble: 0.01  # match
+  #   spacing: 0.03  # match
+  #   time: 0.001  # match
 
-  # Passing-dominant stage: pass pulse outweighs a full progress run
-  # (progress telescopes to ~7-9/episode), scoring still worth chaining passes.
-  passing: &passing_rw
-    goal: 50  # match coop
-    goal_close: 50  # match coop
-    progress: 0.4  # halved (coop 0.8): dribbling upfield must not beat passing
-    proximity: 0.15  # halved (coop 0.3): less ball-chasing, more open receivers
-    kick_forward: 0.15  # cut (coop 0.4): sideways/back passes should not be punished
-    kick: 0.3  # any-direction kick, seeds pass attempts
-    pass: 5.0  # boosted 16x (coop 0.3): ~2 passes == one progress run
-    dribble: 0.03  # raised (coop 0.01): hold ball to aim
-    spacing: 0.1  # raised (coop 0.03): spread out to open pass lanes
-    time: 0.001  # match coop
+  # # Passing-dominant stage: pass pulse outweighs a full progress run
+  # # (progress telescopes to ~7-9/episode), scoring still worth chaining passes.
+  # passing: &passing_rw
+  #   goal: 50  # match coop
+  #   goal_close: 50  # match coop
+  #   progress: 0.4  # halved (coop 0.8): dribbling upfield must not beat passing
+  #   proximity: 0.15  # halved (coop 0.3): less ball-chasing, more open receivers
+  #   kick_forward: 0.15  # cut (coop 0.4): sideways/back passes should not be punished
+  #   kick: 0.3  # any-direction kick, seeds pass attempts
+  #   pass: 5.0  # boosted 16x (coop 0.3): ~2 passes == one progress run
+  #   dribble: 0.03  # raised (coop 0.01): hold ball to aim
+  #   spacing: 0.1  # raised (coop 0.03): spread out to open pass lanes
+  #   time: 0.001  # match coop
 
   # Quality-passing: rewards forward passes, positioning, and assist->shot sequences [MUSKAN]
   quality_passing: &quality_passing_rw
@@ -190,82 +192,83 @@ reward_templates:
     time: 0.001
 
 stages:
-  # - name: "1vs0yellow-half"
-  #   total_steps: 10000000
-  #   environment:
-  #     n_robots_blue: 1
-  #     n_robots_yellow: 0
-  #     allowed_positions_ball:
-  #       <<: *ball_right_before_goal
-  #     allowed_positions_blue:
-  #       <<: *right_third
-  #     rewards:
-  #       <<: *solo_rw
+  - name: "1vs0yellow-half"
+    total_steps: 7000000
+    environment:
+      n_robots_blue: 1
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_right_before_goal
+      allowed_positions_blue:
+        <<: *right_third
+      rewards:
+        <<: *solo_rw
 
-  # - name: "1vs0random"
-  #   total_steps: 10000000
-  #   environment:
-  #     n_robots_blue: 1
-  #     n_robots_yellow: 0
-  #     rewards:
-  #       <<: *solo_rw
+  - name: "1vs0random"
+    total_steps: 7000000
+    environment:
+      n_robots_blue: 1
+      n_robots_yellow: 0
+      rewards:
+        <<: *solo_rw
 
-  # - name: "1vs0yellow_half_coop"
-  #   total_steps: 5000000
-  #   environment:
-  #     n_robots_blue: 1
-  #     n_robots_yellow: 0
-  #     allowed_positions_ball:
-  #       <<: *ball_right_before_goal
-  #     allowed_positions_blue:
-  #       <<: *right_third
-  #     rewards:
-  #       <<: *coop_rw
+  - name: "1vs0yellow_half_coop"
+    total_steps: 4000000
+    environment:
+      n_robots_blue: 1
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_right_before_goal
+      allowed_positions_blue:
+        <<: *right_third
+      rewards:
+        <<: *coop_rw
 
-  # - name: "1vs0random_coop"
-  #   total_steps: 5000000
-  #   environment:
-  #     n_robots_blue: 1
-  #     n_robots_yellow: 0
-  #     rewards:
-  #       <<: *coop_rw
+  - name: "1vs0random_coop"
+    total_steps: 4000000
+    environment:
+      n_robots_blue: 1
+      n_robots_yellow: 0
+      rewards:
+        <<: *coop_rw
 
-  # - name: "2vs0yellow-half"
-  #   <<: *defaults
-  #   environment:
-  #     n_robots_blue: 2
-  #     n_robots_yellow: 0
-  #     allowed_positions_ball:
-  #       <<: *ball_right_before_goal
-  #     allowed_positions_blue:
-  #       <<: *right_third
-  #     rewards:
-  #       <<: *coop_rw
+  - name: "2vs0yellow-half"
+    <<: *defaults
+    total_steps: 3000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_right_before_goal
+      allowed_positions_blue:
+        <<: *right_third
+      rewards:
+        <<: *coop_rw
 
-  # - name: "2vs0game"
-  #   <<: *defaults
-  #   environment:
-  #     n_robots_blue: 2
-  #     n_robots_yellow: 0
-  #     # Startpositions similar to a normal game
-  #     allowed_positions_ball:
-  #       <<: *ball_middle
-  #     allowed_positions_blue:
-  #       <<: *blue_half
-  #     allowed_positions_yellow:
-  #       <<: *yellow_half
-  #     rewards:
-  #       <<: *coop_rw
+  - name: "2vs0game"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      # Startpositions similar to a normal game
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *coop_rw
 
-  # - name: "2vs2random"
-  #   <<: *defaults
-  #   environment:
-  #     n_robots_blue: 2
-  #     n_robots_yellow: 2
-  #     # spawn everything random on the field
-  #     rewards:
-  #       <<: *quality_passing_rw
-  #       dribble: 0.03
+  - name: "2vs2random"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      # spawn everything random on the field
+      rewards:
+        <<: *quality_passing_rw
+        dribble: 0.03
 
   - name: "2vs2game_ou"
     <<: *defaults
