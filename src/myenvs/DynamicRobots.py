@@ -518,8 +518,8 @@ class SSLDynamicRobots(SSLBaseEnv):
             return 0.0, 0.0
 
         d_min = 2.0 * self.field_scale  # min pass length to count (m) (should be same as minimum distance in distance reward)
-        recv_radius = 0.25 * self.field_scale  # catch radius (we don't expect the robot to dribble with the ball directly)
-        max_catch_speed = self.max_v / 3.0  # ball faster than this cannot be brought under control
+        recv_radius = 0.33 * self.field_scale  # catch radius (we don't expect the robot to dribble with the ball directly)
+        max_catch_speed = self.max_v  # ball faster than this cannot be brought under control
 
         ball = np.array([self.frame.ball.x, self.frame.ball.y])
         last_ball = np.array([self.last_frame.ball.x, self.last_frame.ball.y])
