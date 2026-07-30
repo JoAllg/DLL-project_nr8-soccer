@@ -161,7 +161,7 @@ class Config(BaseModel):
     # coefficient of the value function"""
     max_grad_norm: float = 0.25
     # the maximum norm for the gradient clipping"""
-    target_kl: Optional[float] = None
+    target_kl: Optional[float] = 0.015
     # the target KL divergence threshold"""
     rpo_alpha: float = 0.2 # Best values between 0.5 to 0.1
     # the alpha parameter for RPO"""

@@ -1,5 +1,5 @@
 defaults: &defaults
-  total_steps: 16000000
+  total_steps: 25000000
 
 position_templates:
   # Ball
@@ -64,6 +64,12 @@ position_templates:
 # out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
 
 reward_templates:
+  default: &default_rw
+    goal: 100
+    progress: 0.8
+    proximity: 0.1
+    kick_forward: 0.1
+
   solo: &solo_rw
     goal: 50
     goal_close: 50
@@ -72,31 +78,45 @@ reward_templates:
     kick_forward: 0.5
     time: 0.0005  # -1/episode at max_steps=1000
 
-  # Needs warmstart from solo reward stage
+  # Needs warmstart from solo reward stage 
   coop: &coop_rw
     goal: 50
     goal_close: 50
     progress: 0.8
-    proximity: 0.3
+    proximity: 0.1
     kick_forward: 0.4
     pass: 0.3
     dribble: 0.01
-    spacing: 0.02
+    spacing: 0.03
     out_of_bounds: 0.05
-    time: 0.001  # -1/episode at max_steps=1000
 
-  # # "Annealed" late-stage variant of `coop`
-  # reduced: &reduced_rw
-  #   goal: 50  # match
-  #   goal_close: 50  # match
-  #   progress: 0.8  # match
-  #   proximity: 0.15  # faded (coop 0.3)
-  #   kick_forward: 0.2  # faded (coop 0.4)
-  #   pass: 0.3  # match
-  #   dribble: 0.01  # match
-  #   spacing: 0.02  # match
-  #   out_of_bounds: 0.05  # match
-  #   time: 0.001  # match
+  # "Annealed" late-stage variant of `coop`
+  reduced: &reduced_rw
+    goal: 50  # match
+    goal_close: 50  # match
+    progress: 0.8  # match
+    proximity: 0.15  # faded (coop 0.3)
+    kick_forward: 0.2  # faded (coop 0.4)
+    pass: 0.3  # match
+    dribble: 0.01  # match
+    spacing: 0.03  # match
+    out_of_bounds: 0.05  # match
+    time: 0.001  # match
+
+  # Passing-dominant stage: pass pulse outweighs a full progress run
+  # (progress telescopes to ~7-9/episode), scoring still worth chaining passes.
+  passing: &passing_rw
+    goal: 50  # match coop
+    goal_close: 50  # match coop
+    progress: 0.4  # halved (coop 0.8): dribbling upfield must not beat passing
+    proximity: 0.15  # halved (coop 0.3): less ball-chasing, more open receivers
+    kick_forward: 0.15  # cut (coop 0.4): sideways/back passes should not be punished
+    kick: 0.3  # any-direction kick, seeds pass attempts
+    pass: 5.0  # boosted 16x (coop 0.3): ~2 passes == one progress run
+    dribble: 0.03  # raised (coop 0.01): hold ball to aim
+    spacing: 0.1  # raised (coop 0.03): spread out to open pass lanes
+    out_of_bounds: 0.1  # raised (coop 0.05): stray passes cost something
+    time: 0.001  # match coop
 
   # Quality-passing: rewards forward passes, positioning, and assist->shot sequences [MUSKAN]
   quality_passing: &quality_passing_rw
@@ -111,6 +131,7 @@ reward_templates:
     pass_to_shot: 0.2
     spacing: 0.02
     out_of_bounds: 0.05
+    time: 0.001
 
   quality_passing_block: &quality_passing_block_rw
     goal: 50
@@ -124,6 +145,7 @@ reward_templates:
     pass_to_shot: 0.3    # increase, reward the full sequence
     spacing: 0.02
     out_of_bounds: 0.05
+    time: 0.001
 
   passing_only: &passing_only_rw
     proximity: 0.1
@@ -134,6 +156,7 @@ reward_templates:
     pass_to_shot: 1.0
     spacing: 0.02
     out_of_bounds: 0.05
+    time: 0.001
 
   passing_only_v2: &passing_only_v2_rw
     proximity: 0.1
@@ -146,6 +169,7 @@ reward_templates:
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
     kick_without_receiver: 0.3
+    time: 0.001
 
   passing_to_goal_v2: &passing_to_goal_v2_rw
     goal: 50
@@ -160,6 +184,7 @@ reward_templates:
     out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
+    time: 0.001
   
   passing_only_v3: &passing_only_v3_rw
     proximity: 0.1
@@ -171,81 +196,87 @@ reward_templates:
     out_of_bounds: 0.05
     off_ball_positioning: 0.2
     receiver_positioning: 0.3
-    kick_without_receiver: 0.3
+    time: 0.001
 
 stages:
-  - name: "1vs0yellow-half"
-    total_steps: 8000000
-    environment:
-      n_robots_blue: 1
-      n_robots_yellow: 0
-      allowed_positions_ball:
-        <<: *ball_right_before_goal
-      allowed_positions_blue:
-        <<: *right_third
-      rewards:
-        <<: *solo_rw
+  # - name: "1vs0yellow-half"
+  #   total_steps: 10000000
+  #   environment:
+  #     n_robots_blue: 1
+  #     n_robots_yellow: 0
+  #     allowed_positions_ball:
+  #       <<: *ball_right_before_goal
+  #     allowed_positions_blue:
+  #       <<: *right_third
+  #     rewards:
+  #       <<: *solo_rw
 
-  - name: "1vs0random"
-    <<: *defaults
-    total_steps: 8000000
-    environment:
-      n_robots_blue: 1
-      n_robots_yellow: 0
-      rewards:
-        <<: *solo_rw
+  # - name: "1vs0random"
+  #   total_steps: 10000000
+  #   environment:
+  #     n_robots_blue: 1
+  #     n_robots_yellow: 0
+  #     rewards:
+  #       <<: *solo_rw
 
-  - name: "2vs0"
-    <<: *defaults
-    total_steps: 8000000
-    environment:
-      n_robots_blue: 2
-      n_robots_yellow: 0
-      allowed_positions_ball:
-        <<: *ball_right_before_goal
-      allowed_positions_blue:
-        <<: *right_third
-      rewards:
-        <<: *solo_rw
+  # - name: "1vs0yellow_half_coop"
+  #   total_steps: 5000000
+  #   environment:
+  #     n_robots_blue: 1
+  #     n_robots_yellow: 0
+  #     allowed_positions_ball:
+  #       <<: *ball_right_before_goal
+  #     allowed_positions_blue:
+  #       <<: *right_third
+  #     rewards:
+  #       <<: *coop_rw
 
-  - name: "2vs0game"
-    <<: *defaults
-    environment:
-      n_robots_blue: 2
-      n_robots_yellow: 0
-      allowed_positions_ball:
-        <<: *ball_middle
-      allowed_positions_blue:
-        <<: *blue_half
-      allowed_positions_yellow:
-        <<: *yellow_half
-      rewards:
-        <<: *solo_rw
+  # - name: "1vs0random_coop"
+  #   total_steps: 5000000
+  #   environment:
+  #     n_robots_blue: 1
+  #     n_robots_yellow: 0
+  #     rewards:
+  #       <<: *coop_rw
 
-  - name: "2vs2random"
-    <<: *defaults
-    environment:
-      n_robots_blue: 2
-      n_robots_yellow: 2
-      rewards:
-        <<: *solo_rw
+  # - name: "2vs0yellow-half"
+  #   <<: *defaults
+  #   environment:
+  #     n_robots_blue: 2
+  #     n_robots_yellow: 0
+  #     allowed_positions_ball:
+  #       <<: *ball_right_before_goal
+  #     allowed_positions_blue:
+  #       <<: *right_third
+  #     rewards:
+  #       <<: *coop_rw
 
-  - name: "2vs2"
-    <<: *defaults
-    environment:
-      n_robots_blue: 2
-      n_robots_yellow: 2
-      opponent_strategy: "Random"
-      allowed_positions_ball:
-        <<: *ball_middle
-      allowed_positions_blue:
-        <<: *blue_half
-      allowed_positions_yellow:
-        <<: *yellow_half
-      rewards:
-        <<: *solo_rw
+  # - name: "2vs0game"
+  #   <<: *defaults
+  #   environment:
+  #     n_robots_blue: 2
+  #     n_robots_yellow: 0
+  #     # Startpositions similar to a normal game
+  #     allowed_positions_ball:
+  #       <<: *ball_middle
+  #     allowed_positions_blue:
+  #       <<: *blue_half
+  #     allowed_positions_yellow:
+  #       <<: *yellow_half
+  #     rewards:
+  #       <<: *coop_rw
 
-  - name: "2vs2ou"
+  # - name: "2vs2random"
+  #   <<: *defaults
+  #   environment:
+  #     n_robots_blue: 2
+  #     n_robots_yellow: 2
+  #     # spawn everything random on the field
+  #     rewards:
+  #       <<: *quality_passing_rw
+  #       dribble: 0.03
+
+  - name: "2vs2game_ou"
     <<: *defaults
     environment:
       n_robots_blue: 2
@@ -258,7 +289,8 @@ stages:
       allowed_positions_yellow:
         <<: *yellow_half
       rewards:
-        <<: *solo_rw
+        <<: *quality_passing_rw
+        dribble: 0.3
 
   - name: "2vs2block"
     <<: *defaults
@@ -273,35 +305,9 @@ stages:
       allowed_positions_yellow:
         <<: *yellow_half
       rewards:
-        <<: *solo_rw
+        <<: *quality_passing_rw
+        dribbling: 0.3
 
-  - name: "2vs2opponent"
-    <<: *defaults
-    environment:
-      n_robots_blue: 2
-      n_robots_yellow: 2
-      opponent_strategy: "Agent"
-      opponent_model: "models/config_stage2_2vs2_v1.cleanrl_model"
-      allowed_positions_ball:
-        <<: *ball_middle
-      allowed_positions_blue:
-        <<: *blue_half
-      allowed_positions_yellow:
-        <<: *yellow_half
-      rewards:
-        <<: *solo_rw
-
-  - name: "2vs0passing"
-    <<: *defaults
-    environment:
-      n_robots_blue: 2
-      n_robots_yellow: 0
-      allowed_positions_ball:
-        <<: *ball_right_before_goal
-      allowed_positions_blue:
-        <<: *right_third
-      rewards:
-        <<: *coop_rw
 
   - name: "2vs0quality_passing"
     <<: *defaults
@@ -317,7 +323,7 @@ stages:
 
   - name: "2vs2block_passing"
     <<: *defaults
-    num_minibatches: 16    # was 32, doubles minibatch from 2,048 to 4,096
+    # num_minibatches: 16    # was 32, doubles minibatch from 2,048 to 4,096
     environment:
       n_robots_blue: 2
       n_robots_yellow: 2
