@@ -36,31 +36,34 @@ position_templates:
     min: [0.4, -0.4]
     max: [0.9, 0.4]
 
-# Available rewards (reference for templates below)
+## Available rewards (reference for templates below)
 # proximity (ps*): distance to ball (closer = higher reward)
 # progress (ps*): ball progress towards goal
 # kick_forward (ps*): robot kicks ball with a forward (+x) component
 # kick (ps*): robot kicks ball in any direction (use for passing)
-# kick_velocity (ps*): ball kick-velocity (forward direction) reward (discontinued)
 # dribble (ps*): teammate keeps ball at dribbler (use small weight)
-# spacing (ps*): crowding penalty when blue robots clump close
-# pass (ps*): pulse when a passed ball reaches a different teammate (0 for solo; small weight)
-# pass_forward (ps*): like pass but scaled by how much the pass advances toward goal [MUSKAN]
-# spread (ps*): reward for robots maintaining spatial separation [MUSKAN]
-# pass_to_shot (ps*): bonus when a shot follows a pass within 15 steps [MUSKAN]
 # goal: goal scored
 # goal_close: goal scored if shot from the last third of the playing field
-# out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
-# time (ps*): flat per-step penalty, makes ending the episode sooner worth more (penalty; positive weight, value already negative)
+# time (ps*): flat per-step penalty, makes ending the episode sooner worth more
+
+## Teamwork
+# spread (ps*): reward for robots maintaining spatial separation [MUSKAN]
+# receiver_positioning (ps*): reward for non-closest robot holding good receiving spot [MUSKAN]
+# off_ball_positioning (ps*): penalty for non-closest robot crowding the ball [MUSKAN]
+# spacing (ps*): crowding penalty when blue robots clump close
+
+# pass (ps*): pulse when a passed ball reaches a different teammate (small weight)
+# pass_forward (ps*): like pass but scaled by how much the pass advances toward goal [MUSKAN]
+# pass_to_shot (ps*): bonus when a shot follows a pass within 15 steps [MUSKAN]
+# kick_without_receiver (ps*): penalty for kicking with no teammate positioned to receive [MUSKAN]
+
 # (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode (dense or event-triggered), so keep the weight small
 
-reward_templates:
-  default: &default_rw
-    goal: 100
-    progress: 0.8
-    proximity: 0.1
-    kick_forward: 0.1
+## Discontinued
+# kick_velocity (ps*): ball kick-velocity (forward direction) reward
+# out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
 
+reward_templates:
   solo: &solo_rw
     goal: 50
     goal_close: 50
@@ -82,26 +85,18 @@ reward_templates:
     out_of_bounds: 0.05
     time: 0.001  # -1/episode at max_steps=1000
 
-  # "Annealed" late-stage variant of `coop`
-  reduced: &reduced_rw
-    goal: 50  # match
-    goal_close: 50  # match
-    progress: 0.8  # match
-    proximity: 0.15  # faded (coop 0.3)
-    kick_forward: 0.2  # faded (coop 0.4)
-    pass: 0.3  # match
-    dribble: 0.01  # match
-    spacing: 0.02  # match
-    out_of_bounds: 0.05  # match
-    time: 0.001  # match
-
-  # Pure-passing stage
-  passing: &passing_rw
-    proximity: 0.4
-    kick: 0.3
-    pass: 1.0
-    spacing: 0.2
-    out_of_bounds: 0.1
+  # # "Annealed" late-stage variant of `coop`
+  # reduced: &reduced_rw
+  #   goal: 50  # match
+  #   goal_close: 50  # match
+  #   progress: 0.8  # match
+  #   proximity: 0.15  # faded (coop 0.3)
+  #   kick_forward: 0.2  # faded (coop 0.4)
+  #   pass: 0.3  # match
+  #   dribble: 0.01  # match
+  #   spacing: 0.02  # match
+  #   out_of_bounds: 0.05  # match
+  #   time: 0.001  # match
 
   # Quality-passing: rewards forward passes, positioning, and assist->shot sequences [MUSKAN]
   quality_passing: &quality_passing_rw
