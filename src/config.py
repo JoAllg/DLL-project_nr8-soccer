@@ -124,7 +124,7 @@ class Config(BaseModel):
     # multiplier used to derive num_envs from the available CPU count when num_envs is unset"""
     num_steps: int = 2 * 1024
     # the number of steps to run in each environment per policy rollout (see apply_num_steps)"""
-    num_minibatches: int = 32 # TODO: double when running on CPU cluster
+    num_minibatches: int = 16 # TODO: double when running on CPU cluster
     # the number of mini-batches"""
     update_epochs: int = 4
     # the K epochs to update the policy"""
