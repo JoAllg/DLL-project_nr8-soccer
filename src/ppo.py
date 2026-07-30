@@ -688,6 +688,18 @@ if __name__ == "__main__":
         local_minibatch_size = local_batch_size // stage_num_minibatches
         config.batch_size = int(config.num_envs * stage.steps)
         config.minibatch_size = int(config.batch_size // stage_num_minibatches)
+        config.num_iterations = iterations
+
+        if is_main and config.track:
+            wandb.config.update(
+                {
+                    f"stage{stage_id}_{stage.name}/num_envs": config.num_envs,
+                    f"stage{stage_id}_{stage.name}/batch_size": config.batch_size,
+                    f"stage{stage_id}_{stage.name}/minibatch_size": config.minibatch_size,
+                    f"stage{stage_id}_{stage.name}/num_iterations": config.num_iterations,
+                },
+                allow_val_change=True,
+            )
 
         utils.set_seed(config.seed, config.torch_deterministic)
 
