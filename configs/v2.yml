@@ -123,7 +123,7 @@ reward_templates:
     goal: 50
     goal_close: 50
     progress: 0.6
-    proximity: 0.1
+    proximity: 0.01
     kick_forward: 0.1
     pass: 0.1
     pass_forward: 0.1
@@ -137,7 +137,7 @@ reward_templates:
     goal: 50
     goal_close: 50
     progress: 0.6
-    proximity: 0.1
+    proximity: 0.01
     kick_forward: 0.1
     pass: 0.15
     pass_forward: 0.15    # increase, passing is the point here
@@ -148,7 +148,7 @@ reward_templates:
     time: 0.001
 
   passing_only: &passing_only_rw
-    proximity: 0.1
+    proximity: 0.01
     kick: 0.3
     pass: 2.0
     pass_forward: 3.0
@@ -159,7 +159,7 @@ reward_templates:
     time: 0.001
 
   passing_only_v2: &passing_only_v2_rw
-    proximity: 0.1
+    proximity: 0.01
     kick: 0.3
     pass: 7.0
     pass_forward: 13.0
@@ -175,7 +175,7 @@ reward_templates:
     goal: 50
     goal_close: 50
     progress: 0.6
-    proximity: 0.1
+    proximity: 0.01
     kick_forward: 0.1
     pass: 4.0
     pass_forward: 6.0
@@ -187,7 +187,7 @@ reward_templates:
     time: 0.001
   
   passing_only_v3: &passing_only_v3_rw
-    proximity: 0.1
+    proximity: 0.01
     kick: 0.3
     pass: 20.0
     pass_forward: 30.0
