@@ -163,13 +163,18 @@ class SSLDynamicRobots(SSLBaseEnv):
         return super().reset(seed=seed, options=options)
     
     def step(self, action):
-        obs, reward, terminated, truncated, info = super().step(action)
+        """SSLBaseEnv reports the time limit as `terminated`; split it back out into
+        `truncated` so PPO bootstraps V(s_T) instead of learning that the world ends
+        at max_steps."""
+        obs, reward, done, _, info = super().step(action)
+        truncated = done and self.time_limit_reached
         # Only add episode metrics when episode ends
         # if terminated or truncated:
         info["episode_pass_count"] = self.episode_pass_count
         info["episode_goal_count"] = self.episode_goal_count
         info["episode_reward_breakdown"] = dict(self.episode_reward_breakdown)
-        return obs, reward, terminated, truncated, info
+        return obs, reward, done and not truncated, truncated, info
+
 
     def _build_obs_for(self, my_robots, opp_robots, mirror: bool):
         """mirror=True flips x and heading so the caller's team is always
@@ -267,14 +272,6 @@ class SSLDynamicRobots(SSLBaseEnv):
                     )
                 )
         return commands
-
-    def step(self, action):
-        """SSLBaseEnv reports the time limit as `terminated`; split it back out into
-        `truncated` so PPO bootstraps V(s_T) instead of learning that the world ends
-        at max_steps."""
-        observation, reward, done, _, info = super().step(action)
-        truncated = done and self.time_limit_reached
-        return observation, reward, done and not truncated, truncated, info
 
     def _calculate_reward_and_done(self):
         self.episode_steps += 1
