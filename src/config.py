@@ -4,8 +4,11 @@ import re
 from typing import Annotated, Optional, Literal
 from dataclasses import asdict, is_dataclass
 import os
+from pathlib import Path
 
 FieldFloat = Annotated[float, Field(ge=-1, le=1)]
+
+CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 
 class Area(BaseModel):
     min: tuple[FieldFloat, FieldFloat] = (-1.0 ,-1.0)
@@ -269,7 +272,7 @@ def override_with_args(args, config: Config) -> Config:
 
 
 def load_config(path: str) -> Config:
-    with open(path) as f:
+    with open(CONFIGS_DIR / path) as f:
         raw = yaml.safe_load(f)
     return Config(**raw)
 

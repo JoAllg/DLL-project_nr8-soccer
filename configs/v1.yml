@@ -252,28 +252,3 @@ stages:
       rewards:
         <<: *coop_rw
 
-  # - name: "2vs2opponent"
-  #   <<: *defaults
-  #   environment:
-  #     n_robots_blue: 2
-  #     n_robots_yellow: 2
-  #     opponent_strategy: "Agent"
-  #     opponent_model: "models/config_stage2_2vs2_v1.cleanrl_model"
-  #     allowed_positions_ball:
-  #       <<: *ball_middle
-  #     allowed_positions_blue:
-  #       <<: *blue_half
-  #     allowed_positions_yellow:
-  #       <<: *yellow_half
-  #     rewards:
-  #       <<: *solo_rw
-
-  # - name: "3vs0passing"
-  #   <<: *defaults
-  #   environment:
-  #     n_robots_blue: 3
-  #     n_robots_yellow: 0
-  #     allowed_positions_ball:
-  #       <<: *ball_middle
-  #     rewards:
-  #       <<: *passing_rw

@@ -124,7 +124,7 @@ CLI_FIELDS: dict[str, str] = {
     "critic_pooling": "(transformer) how the critic pools entity tokens into a scalar value",
 
     # to be filled in runtime
-    "config": "path to yaml file providing configuration training stages and environments",
+    "config": "yaml filename (in configs/) providing configuration training stages and environments",
     "stage_name": "which stage of the config file should be executed. None: execute all stages in Order",
     "rewards": "name of a reward_templates entry that overrides every run stage's reward weights (e.g. --rewards coop)",
     "load_model": "Path to a .cleanrl_model checkpoint to load before the first training stage.",
