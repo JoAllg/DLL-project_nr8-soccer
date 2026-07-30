@@ -225,3 +225,4 @@ deps
 videos
 wandb
 logs
+.DS_Store

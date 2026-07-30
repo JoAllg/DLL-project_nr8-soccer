@@ -114,8 +114,7 @@ CLI_FIELDS: dict[str, str] = {
     "target_kl": "the target KL divergence threshold",
     "rpo_alpha": "the alpha parameter for RPO", # Best values between 0.5 to 0.1
 
-
-    # Agent architecture arguments,
+    # Agent architecture arguments
     "agent_type": "the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer",
     "d_model": "(transformer) the model/embedding dimension",
     "n_layers": "(transformer) the number of encoder layers",
@@ -124,7 +123,7 @@ CLI_FIELDS: dict[str, str] = {
     "dropout": "(transformer) dropout inside encoder layers", # Should not be used (RPO/PPO regularize with action-mean perturbation and sampling noise),
     "critic_pooling": "(transformer) how the critic pools entity tokens into a scalar value",
 
-    # to be filled in runtime,
+    # to be filled in runtime
     "config": "path to yaml file providing configuration training stages and environments",
     "stage_name": "which stage of the config file should be executed. None: execute all stages in Order",
     "rewards": "name of a reward_templates entry that overrides every run stage's reward weights (e.g. --rewards coop)",
@@ -293,6 +292,11 @@ def run_stage(
         frac = min(global_step / config.total_timesteps, 1.0)
         ent_coef = config.ent_coef + (config.final_ent_coef - config.ent_coef) * frac
 
+        # [MUSKAN] Rollout accumulators for scale-invariant metrics
+        rollout_passes = 0
+        rollout_goals = 0
+        rollout_episodes = 0
+
         for step in range(0, stage.steps):
             global_step += config.num_envs
 
@@ -336,12 +340,32 @@ def run_stage(
                         writer.add_scalar("charts/episodic_return", r, global_step)
                         writer.add_scalar("charts/episodic_length", episode_infos["episode"]["l"][i], global_step)
 
+                    # [MUSKAN] Accumulate pass/goal counts per completed episode
+                    rollout_episodes += 1
+                    if "episode_pass_count" in episode_infos and episode_infos["episode_pass_count"] is not None:
+                        pc = episode_infos["episode_pass_count"][i]
+                        gc = episode_infos["episode_goal_count"][i]
+                        if pc is not None:
+                            rollout_passes += int(pc)
+                        if gc is not None:
+                            rollout_goals += int(gc)
+
+                    # [MUSKAN] Per-reward-term breakdown
+                    if "episode_reward_breakdown" in episode_infos:
+                        for name, arr in episode_infos["episode_reward_breakdown"].items():
+                            if not name.startswith("_"):
+                                writer.add_scalar(f"rewards/{name}", arr[i], global_step)
+
             # save checkpoint
             if is_main and config.save_steps > 0 and global_step - last_save_step >= config.save_steps:
                 save_checkpoint()
                 last_save_step = global_step
 
         t_rollout_end = time.time()
+        # [MUSKAN] Log rollout-level metrics after each rollout — scale invariant
+        if writer is not None and rollout_episodes > 0:
+            writer.add_scalar("charts/passes_per_episode", rollout_passes / rollout_episodes, global_step)
+            writer.add_scalar("charts/goals_per_episode", rollout_goals / rollout_episodes, global_step)
 
         # bootstrap value if not done
         with torch.no_grad():
@@ -666,7 +690,6 @@ if __name__ == "__main__":
                 make_env(config.env_id, i, config.capture_video and is_main, video_folder, config.gamma,
                           flatten=config.agent_type == "mlp", environment_args=env_args)
                 for i in range(local_num_envs)
-
             ],
             context="spawn", # spawn new process each time otherwise deadlock at 2nd stage
             # gymnasium's NEXT_STEP default spends a whole extra step resetting,
@@ -674,6 +697,7 @@ if __name__ == "__main__":
             # action, reward 0) that GAE then trains on. SAME_STEP resets in place
             # and hands back the real final obs via infos["final_obs"], restoring the
             # `dones[t] marks a reset obs` semantics this loop's GAE assumes.
+            observation_mode='different',
             autoreset_mode=AutoresetMode.SAME_STEP,
         )
         assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
@@ -700,8 +724,7 @@ if __name__ == "__main__":
 
             if config.load_model:
                 print(f"loading model weights from: {config.load_model}")
-                agent.load_state_dict(torch.load(config.load_model,
-                                                 map_location=device))
+                agent.load_state_dict(torch.load(config.load_model, map_location=device))
 
             no_decay = {"actor_logstd", "critic.pool_query"}
             decay_params = [p for n, p in agent.named_parameters() if p.ndim >= 2 and n not in no_decay]
@@ -755,6 +778,7 @@ if __name__ == "__main__":
         )
 
         envs.close()
+        time.sleep(3)
 
     if writer is not None:
         writer.close()
