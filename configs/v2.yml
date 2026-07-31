@@ -119,8 +119,8 @@ reward_templates:
 
   # Quality-passing: rewards forward passes, positioning, and assist->shot sequences [MUSKAN]
   quality_passing: &quality_passing_rw
-    goal: 50
-    goal_close: 50
+    goal: 20
+    goal_close: 70
     progress: 0.6
     proximity: 0.01
     kick_forward: 0.1
@@ -132,8 +132,8 @@ reward_templates:
     time: 0.001
 
   quality_passing_block: &quality_passing_block_rw
-    goal: 50
-    goal_close: 50
+    goal: 20
+    goal_close: 70
     progress: 0.6
     proximity: 0.01
     kick_forward: 0.1
@@ -167,7 +167,6 @@ reward_templates:
     time: 0.001
 
   passing_to_goal_v2: &passing_to_goal_v2_rw
-    goal: 50
     goal_close: 50
     progress: 0.6
     proximity: 0.01
