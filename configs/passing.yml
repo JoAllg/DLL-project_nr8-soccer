@@ -29,7 +29,8 @@ reward_templates:
   passing_only_v2: &passing_only_v2_rw
     proximity: 0.01
     kick: 0.3
-    pass: 20.0
+    pass: 15.0
+    pass_forward: 5.0
     spread: 0.05
     spacing: 0.3
     off_ball_positioning: 0.2
@@ -40,7 +41,8 @@ reward_templates:
   passing_only_v3: &passing_only_v3_rw
     proximity: 0.01
     kick: 0.3
-    pass: 50.0
+    pass: 40.0
+    pass_forward: 10.0
     spread: 0.05
     spacing: 0.3
     off_ball_positioning: 0.2
