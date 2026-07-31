@@ -448,6 +448,9 @@ def run_stage(
                             dist.all_reduce(param.grad.data, op=dist.ReduceOp.AVG)
                 nn.utils.clip_grad_norm_(agent.parameters(), config.max_grad_norm)
                 optimizer.step()
+                # pull back in-bounds: clamp's backward is 0 once past LOGSTD_MIN/MAX, else stuck forever
+                with torch.no_grad():
+                    agent.actor_logstd.clamp_(agent.LOGSTD_MIN, agent.LOGSTD_MAX)
                 if scheduler is not None:
                     scheduler.step()
 

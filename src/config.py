@@ -134,7 +134,7 @@ class Config(BaseModel):
     # Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
     warmup_ratio: float = 0.01
     # fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
-    min_lr_ratio: float = 0.001
+    min_lr_ratio: float = 3e-8
     # the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
     num_cycles: int = 1
     # number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
@@ -161,7 +161,7 @@ class Config(BaseModel):
     # coefficient of the value function"""
     max_grad_norm: float = 0.25
     # the maximum norm for the gradient clipping"""
-    target_kl: Optional[float] = 0.015
+    target_kl: Optional[float] = 0.05
     # the target KL divergence threshold"""
     rpo_alpha: float = 0.2 # Best values between 0.5 to 0.1
     # the alpha parameter for RPO"""

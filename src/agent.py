@@ -52,7 +52,8 @@ class Agent(nn.Module):
         # diagonal Gaussian, learned global (state-independent) logstd;
         # transformer: one per per-robot action dim, shared across robots (team-size independent)
         logstd_dim = act_dim_per_robot if agent_type == "transformer" else act_dim_total
-        self.actor_logstd = nn.Parameter(torch.zeros(1, logstd_dim))
+        # below LOGSTD_MAX: init at the cap of 1 (torch.zeros()) left no headroom before freezing (see clamp_ below)
+        self.actor_logstd = nn.Parameter(torch.full((1, logstd_dim), -0.5))
 
     def _derive_layout(self, envs):
         """Read a TokenLayout + per-robot action width off `envs`, consistency-checked.
