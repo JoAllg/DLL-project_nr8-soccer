@@ -1,0 +1,119 @@
+defaults: &defaults
+  total_steps: 16000000
+
+position_templates:
+  ball_middle: &ball_middle
+    min: [-0.2, -0.6]
+    max: [0.2, 0.6]
+
+  # tiny box in the middle of blue_half -> minimizes worst-case distance
+  # to either robot, for fast first ball contact
+  ball_close_blue: &ball_close_blue
+    min: [-0.5, -0.15]
+    max: [-0.35, 0.15]
+
+  blue_half: &blue_half
+    min: [-0.8, -0.8]
+    max: [-0.1, 0.8]
+
+reward_templates:
+  passing_only: &passing_only_rw
+    proximity: 0.01
+    kick: 0.3
+    pass: 2.0
+    pass_forward: 3.0
+    spread: 0.3
+    pass_to_shot: 1.0
+    spacing: 0.02
+    time: 0.001
+
+  passing_only_v2: &passing_only_v2_rw
+    proximity: 0.01
+    kick: 0.3
+    pass: 7.0
+    pass_forward: 13.0
+    spread: 0.05
+    spacing: 0.3
+    off_ball_positioning: 0.2
+    receiver_positioning: 0.3
+    kick_without_receiver: 0.3
+    time: 0.001
+
+  passing_only_v3: &passing_only_v3_rw
+    proximity: 0.01
+    kick: 0.3
+    pass: 20.0
+    pass_forward: 30.0
+    spread: 0.05
+    spacing: 0.3
+    off_ball_positioning: 0.2
+    receiver_positioning: 0.3
+    time: 0.001
+
+stages:
+  # --- 2 robots ---
+  - name: "2vs0passing_ball_close"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_close_blue
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *passing_only_rw
+
+  - name: "2vs0passing_blue_half"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *blue_half
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *passing_only_rw
+
+  - name: "2vs0passing_random"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_blue:
+      rewards:
+        <<: *passing_only_v2_rw
+
+  # --- 3 robots ---
+  - name: "3vs0passing_ball_close"
+    <<: *defaults
+    environment:
+      n_robots_blue: 3
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_close_blue
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *passing_only_rw
+
+  - name: "3vs0passing_blue_half"
+    <<: *defaults
+    environment:
+      n_robots_blue: 3
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *blue_half
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *passing_only_rw
+
+  - name: "3vs0passing_random"
+    <<: *defaults
+    environment:
+      n_robots_blue: 3
+      n_robots_yellow: 0
+      rewards:
+        <<: *passing_only_v3_rw
