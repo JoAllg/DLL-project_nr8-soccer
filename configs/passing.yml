@@ -80,7 +80,6 @@ stages:
     environment:
       n_robots_blue: 2
       n_robots_yellow: 0
-      allowed_positions_blue:
       rewards:
         <<: *passing_only_v2_rw
 
