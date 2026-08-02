@@ -50,6 +50,7 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     # Values to modify: episode length and player/ball speed-up
     max_steps = 1000  # episode limit (25 s at 0.025 s/step)
+    max_passes = 3  # completed passes that end the episode (None: no limit)
     speed_up = 1.5  # multiplier on both robot and ball speed vs. realistic pace
 
     # Speeds anchored to real soccer: a fast pro covers the 105 m pitch in ~12 s
@@ -303,6 +304,16 @@ class SSLDynamicRobots(SSLBaseEnv):
             weighted = weight * r
             self.episode_reward_breakdown[name] += weighted
             reward += weighted
+
+        # Passing task solved: reset for a fresh spawn instead of farming the
+        # same layout. Flagged like the time limit so step() reports it as a
+        # truncation and PPO bootstraps V(s_T) -- otherwise cutting off the
+        # future pass rewards would make the third pass look bad.
+        if self.max_passes is not None and self.episode_pass_count >= self.max_passes:
+            self.episode_steps = 0
+            self.time_limit_reached = True
+            return reward, True
+
         return reward, self._reward_goal() > 0  # goal ends the episode even when its reward weight is not configured
 
     def _update_ball_touch(self):
@@ -667,6 +678,34 @@ class SSLDynamicRobots(SSLBaseEnv):
                 return 0.0  # teammate is in good position, kick is fine
 
         return -1.0  # kicked without a teammate in receiving position
+
+    def _reward_kick_without_receiver_omni(self):
+        """Direction-independent copy of _reward_kick_without_receiver.
+
+        A teammate counts as receivable in any direction, not only ahead in +x.
+        The lower distance bound is d_min (as in _detect_reception): a closer
+        teammate cannot complete a pass because the ball would not travel far
+        enough to register one.
+        """
+        if self.last_frame is None or self.n_robots_blue < 2:
+            return 0.0
+        dvx = self.frame.ball.v_x - self.last_frame.ball.v_x
+        dvy = self.frame.ball.v_y - self.last_frame.ball.v_y
+        if np.hypot(dvx, dvy) < self.max_v:
+            return 0.0  # no kick happened this step
+
+        ball = self.frame.ball
+        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
+                 for rid, r in self.frame.robots_blue.items()}
+        closest_id = min(dists, key=dists.get)
+
+        for rid, dist in dists.items():
+            if rid == closest_id:
+                continue
+            if 2.0 * self.field_scale < dist < 5.0 * self.field_scale:
+                return 0.0  # a teammate is at passable range, kick is fine
+
+        return -1.0  # kicked with no teammate at passable range
 
     def _get_initial_positions_frame(self):
 
