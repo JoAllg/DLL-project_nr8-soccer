@@ -1,5 +1,5 @@
 defaults: &defaults
-  total_steps: 25000000
+  total_steps: 16000000
 
 position_templates:
   # Ball
@@ -115,7 +115,7 @@ stages:
         <<: *solo_rw
 
   - name: "1vs0yellow_half_coop"
-    total_steps: 5000000
+    total_steps: 8000000
     environment:
       n_robots_blue: 1
       n_robots_yellow: 0
@@ -127,7 +127,7 @@ stages:
         <<: *coop_rw
 
   - name: "1vs0random_coop"
-    total_steps: 5000000
+    total_steps: 8000000
     environment:
       n_robots_blue: 1
       n_robots_yellow: 0
