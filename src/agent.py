@@ -145,7 +145,7 @@ class Agent(nn.Module):
             return self.critic(*self._tokenize(x))
         return self.critic(x)
 
-    def get_action_and_value(self, x, action=None):
+    def get_action_and_value(self, x, action=None, deterministic=False):
         if self.agent_type == "transformer":
             tokens = self._tokenize(x)
             # (B, n_teammates, act_dim_per_robot) -> flat (B, act_dim_total) for the Gaussian
@@ -165,7 +165,8 @@ class Agent(nn.Module):
         action_std = torch.exp(action_logstd.clamp(self.LOGSTD_MIN, self.LOGSTD_MAX))
         probs = Normal(action_mean, action_std)
         if action is None:
-            action = probs.sample()
+            # deterministic: greedy mean action, for evaluation only (see simulate.py)
+            action = action_mean if deterministic else probs.sample()
         else:  # RPO: perturb the stored action's mean before re-evaluating
             action = action.reshape(x.shape[0], -1)
             z = torch.FloatTensor(action_mean.shape).uniform_(-self.rpo_alpha, self.rpo_alpha).to(x.device)
