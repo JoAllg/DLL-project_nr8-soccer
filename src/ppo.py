@@ -2,6 +2,7 @@
 import io
 import os
 import resource
+import subprocess
 import time
 import warnings
 import signal
@@ -517,6 +518,7 @@ def run_stage(
         print(f"[stage {stage_id}] model saved to {model_path}")
         if config.track:
             upload_model_artifact(model_path, stage_id, stage.name, global_step, is_final=True)
+            subprocess.run(["uv", "run", "wandb", "artifact", "cache", "cleanup", "1GB"], check=False)
 
     if is_main and config.track and config.capture_video:
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
