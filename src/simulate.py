@@ -1,4 +1,7 @@
-"""Run a saved agent checkpoint in the environment, without training.
+"""
+Disclaimer: This script was written by code prompting with the Claude Code Sonnet & Opus 5.
+
+Run a saved agent checkpoint in the environment, without training.
 
 Usage:
     python simulate.py --model-path runs/.../stage0_explore.cleanrl_model \
@@ -22,9 +25,11 @@ from gymnasium.vector import AutoresetMode
 
 import rsoccer_gym  # noqa: F401
 import myenvs  # noqa: F401
+from rsoccer_gym.Render import SSLRenderField
 
 from agent import Agent
 from config import load_config
+from scene import open_window, present
 
 
 @dataclass
@@ -43,6 +48,10 @@ class SimArgs:
     """open a live window and render each step as it happens (resizable, scales with the window)"""
     fullscreen: bool = False
     """with --render: open the window fullscreen instead of resizable"""
+    scale: int = 300
+    """render resolution in pixels per metre (rSoccer's own default is 100)"""
+    supersample: int = 2
+    """with --render: render this far above --scale and downsample, for antialiased edges"""
     fps: int = 60
     """playback speed cap when --render is set (env's own render clock)"""
     capture_video: bool = False
@@ -75,22 +84,6 @@ def build_env_fn(args, config, env_args):
         return env
 
     return thunk
-
-
-def open_scaled_window(env, fullscreen: bool):
-    """Open the pygame window ourselves, with SCALED so the field grows with the window.
-
-    rSoccer draws at a fixed scale onto a surface of `window_size`; resizing the OS
-    window only adds background around it. pygame.SCALED makes SDL treat window_size
-    as a logical resolution and stretch it (aspect preserved) to the real window.
-    SSLBaseEnv.render() only calls set_mode when window_surface is still None, so
-    pre-creating it here is enough.
-    """
-    pygame.init()
-    pygame.display.init()
-    pygame.display.set_caption("SSL Environment")
-    flags = pygame.SCALED | (pygame.FULLSCREEN if fullscreen else pygame.RESIZABLE)
-    env.window_surface = pygame.display.set_mode(env.window_size, flags)
 
 
 def poll_events():
@@ -148,6 +141,11 @@ def main():
 
     device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
 
+    # px/m the field, robots and ball are all drawn from; supersampling only helps
+    # the live window, which downsamples on present -- RecordVideo would just get
+    # oversized frames.
+    SSLRenderField._scale = args.scale * (args.supersample if args.render else 1)
+
     # single env, but Agent reads single_observation_space/single_action_space
     # and expects a batch dim, so keep the vector interface
     envs = gym.vector.SyncVectorEnv(
@@ -155,8 +153,10 @@ def main():
         autoreset_mode=AutoresetMode.SAME_STEP,  # match training semantics
     )
 
+    render_env = None
     if args.render:
-        open_scaled_window(envs.envs[0].unwrapped, args.fullscreen)
+        render_env = envs.envs[0].unwrapped
+        open_window(render_env, args.fullscreen, caption="SSL Environment")
         print("[render] ESC / close window: quit   SPACE: pause/resume   RIGHT: skip episode")
 
     # no model_path -> blue robots stay static (zero action); useful to inspect opponents alone
@@ -203,6 +203,8 @@ def main():
                 action = action.cpu().numpy()
 
             obs, reward, terminations, truncations, infos = envs.step(action)
+            if args.render:
+                present(render_env)  # env.step drew into the offscreen surface
             ep_return += float(reward[0])
             done = bool(terminations[0] or truncations[0])
 
