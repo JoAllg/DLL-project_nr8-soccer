@@ -4,7 +4,7 @@ Usage:
     python simulate.py --model-path runs/.../stage0_explore.cleanrl_model \
                        --config v3.yml --stage-name explore --episodes 10
 
-    # live rendered window:
+    # live rendered window (runs straight through; ESC quits, SPACE pauses, RIGHT skips):
     python simulate.py --model-path ... --config v3.yml --render
 
     # video capture instead:
@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+import pygame
 import torch
 import tyro
 import gymnasium as gym
@@ -39,7 +40,9 @@ class SimArgs:
     deterministic: bool = True
     """use the policy mean instead of sampling (recommended for evaluation)"""
     render: bool = False
-    """open a live window and render each step as it happens"""
+    """open a live window and render each step as it happens (resizable, scales with the window)"""
+    fullscreen: bool = False
+    """with --render: open the window fullscreen instead of resizable"""
     fps: int = 60
     """playback speed cap when --render is set (env's own render clock)"""
     capture_video: bool = False
@@ -72,6 +75,47 @@ def build_env_fn(args, config, env_args):
         return env
 
     return thunk
+
+
+def open_scaled_window(env, fullscreen: bool):
+    """Open the pygame window ourselves, with SCALED so the field grows with the window.
+
+    rSoccer draws at a fixed scale onto a surface of `window_size`; resizing the OS
+    window only adds background around it. pygame.SCALED makes SDL treat window_size
+    as a logical resolution and stretch it (aspect preserved) to the real window.
+    SSLBaseEnv.render() only calls set_mode when window_surface is still None, so
+    pre-creating it here is enough.
+    """
+    pygame.init()
+    pygame.display.init()
+    pygame.display.set_caption("SSL Environment")
+    flags = pygame.SCALED | (pygame.FULLSCREEN if fullscreen else pygame.RESIZABLE)
+    env.window_surface = pygame.display.set_mode(env.window_size, flags)
+
+
+def poll_events():
+    """Drain the pygame queue -> "quit" (ESC / close), "pause" (SPACE),
+    "skip" (RIGHT arrow) or None."""
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return "quit"
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                return "quit"
+            if event.key == pygame.K_SPACE:
+                return "pause"
+            if event.key == pygame.K_RIGHT:
+                return "skip"
+    return None
+
+
+def wait_for_key():
+    """Block while paused until SPACE (resume) or ESC/close; keeps the window responsive."""
+    while True:
+        key = poll_events()
+        if key is not None:
+            return key
+        pygame.time.wait(50)
 
 
 def build_agent(envs, config, path, device):
@@ -111,6 +155,10 @@ def main():
         autoreset_mode=AutoresetMode.SAME_STEP,  # match training semantics
     )
 
+    if args.render:
+        open_scaled_window(envs.envs[0].unwrapped, args.fullscreen)
+        print("[render] ESC / close window: quit   SPACE: pause/resume   RIGHT: skip episode")
+
     # no model_path -> blue robots stay static (zero action); useful to inspect opponents alone
     agent = None
     if args.model_path is not None:
@@ -126,11 +174,25 @@ def main():
     returns, goals, passes = [], [], []
     obs, _ = envs.reset(seed=args.seed)
 
+    quit_requested = False
     for ep in range(args.episodes):
         ep_return = 0.0
         done = False
+        skipped = False
         infos = {}
         while not done:
+            if args.render:
+                key = poll_events()
+                if key == "pause":
+                    print("  paused — SPACE to resume, RIGHT to skip, ESC to quit")
+                    key = wait_for_key()
+                if key == "quit":
+                    quit_requested = True
+                    break
+                if key == "skip":
+                    skipped = True
+                    break
+
             if agent is None:
                 action = zero_action
             else:
@@ -144,6 +206,17 @@ def main():
             ep_return += float(reward[0])
             done = bool(terminations[0] or truncations[0])
 
+        if quit_requested:
+            print("quit requested — aborting the current episode")
+            break
+
+        if skipped:
+            # cut short by hand, so no final_info and no comparable stats:
+            # leave it out of the summary and start a fresh episode
+            print(f"episode {ep + 1}/{args.episodes}: skipped (return so far {ep_return:.2f})")
+            obs, _ = envs.reset()
+            continue
+
         # SAME_STEP autoreset stashes the finished episode's info under final_info
         ep_info = infos.get("final_info", {})
         goals.append(float(ep_info.get("episode_goal_count", [0])[0]))
@@ -153,9 +226,12 @@ def main():
         print(f"episode {ep + 1}/{args.episodes}: return={ep_return:.2f} "
               f"length={length} goals={goals[-1]:.0f} passes={passes[-1]:.0f}")
 
-    print(f"\nmean return over {args.episodes} episodes: "
-          f"{np.mean(returns):.2f} ± {np.std(returns):.2f}")
-    print(f"goals/episode: {np.mean(goals):.2f}  passes/episode: {np.mean(passes):.2f}")
+    if not returns:
+        print("\nno episode completed")
+    else:
+        print(f"\nmean return over {len(returns)} episodes: "
+              f"{np.mean(returns):.2f} ± {np.std(returns):.2f}")
+        print(f"goals/episode: {np.mean(goals):.2f}  passes/episode: {np.mean(passes):.2f}")
 
     envs.close()
 
