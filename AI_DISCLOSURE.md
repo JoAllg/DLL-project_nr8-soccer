@@ -10,5 +10,6 @@ Additionally AI helped with:
 - Creating plots and visualizations
 - Debugging complex implementation issues
 - Troubleshooting technical problems (e.g., software and environment setup)
+- Writing and improving code documentation (docstrings)
 
 To the best of our knowledge, no scientific misconduct (e.g., plagiarism) or third-party IP infringement occurred through AI usage. We reviewed AI-generated code and text for correctness and originality. 
