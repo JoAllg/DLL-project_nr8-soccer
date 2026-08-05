@@ -3,8 +3,8 @@
 
 [contributors-shield]: https://img.shields.io/github/contributors/JoAllg/DLL-project_nr8-soccer.svg?style=for-the-badge
 [contributors-url]: https://github.com/JoAllg/DLL-project_nr8-soccer/graphs/contributors
-[license-shield]: https://img.shields.io/badge/Licence-CC_BY--NC_4.0-red?style=for-the-badge
-[license-url]: https://creativecommons.org/licenses/by-nc/4.0/
+[license-shield]: https://img.shields.io/badge/Licence-CC_BY--SA_4.0-red?style=for-the-badge
+[license-url]: https://creativecommons.org/licenses/by-sa/4.0/
 
 # NR#8 Learning Cooperation in Soccer with Transformer-Based Policies (Julien)
 
