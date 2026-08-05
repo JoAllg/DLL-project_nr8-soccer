@@ -1,4 +1,4 @@
-"""Disclaimer: Writen by claude opus 4.8
+"""Disclaimer: Writen with claude code sonnet/opus 5
 
 Per-entity saliency for a trained transformer policy.
 
@@ -65,7 +65,7 @@ def build_agent(envs, ckpt, device, d_model, n_layers, n_heads, ff_dim, critic_p
         envs, rpo_alpha, agent_type="transformer", d_model=d_model, n_layers=n_layers,
         n_heads=n_heads, ff_dim=ff_dim, dropout=0.0, critic_pooling=critic_pooling,
     ).to(device)
-    agent.load_state_dict(torch.load(ckpt, map_location=device))
+    agent.load_state_dict(torch.load(ckpt, map_location=device, weights_only=True))
     agent.eval()
     return agent
 
@@ -110,7 +110,9 @@ def actor_saliency(agent, obs):
     lay = agent.layout
     n_tm = lay.n_teammates
     ball, teammates, opponents = _leaf_tokens(agent, obs)
-    action_mean = agent.actor(ball, teammates, opponents)  # (B, n_tm, act_dim)
+    # tanh, like get_action_and_value: attribute the action actually emitted,
+    # not the unbounded pre-squash head output
+    action_mean = torch.tanh(agent.actor(ball, teammates, opponents))  # (B, n_tm, act_dim)
     B = action_mean.shape[0]
     cols = action_mean.new_zeros(B, n_tm, 4)  # ball, self, other-teammates, opponents
 
@@ -134,7 +136,9 @@ def actor_saliency(agent, obs):
 
 @torch.no_grad()
 def _policy_action(agent, obs_t):
-    action, *_ = agent.get_action_and_value(obs_t)
+    # greedy mean action: saliency should be measured on the states the
+    # evaluated (deterministic) policy actually visits, same as simulate.py
+    action, *_ = agent.get_action_and_value(obs_t, deterministic=True)
     return action
 
 
