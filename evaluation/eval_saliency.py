@@ -13,7 +13,7 @@ excluded). Two outputs are attributed:
 Sensitivity-based, not attention weights: it reflects how much the actual output
 moves when an entity's features change.
 
-    uv run python eval_saliency.py --checkpoint runs/<run>/<ckpt>.cleanrl_model \
+    uv run python evaluation/eval_saliency.py --checkpoint models/v1_2-2zwe9huo.cleanrl_model \
         --n-blue 2 --n-yellow 0 --rollout-steps 200
 
 Run from anywhere; it adds ../src to sys.path for the top-level env/agent modules.
@@ -200,9 +200,10 @@ def report(crit_mean, act_mean, out_prefix=None):
         )
         print(f"\nsaved raw arrays to {out_prefix}.npz")
         _try_plot(norm.numpy(), cols, f"{out_prefix}.png")
+        _try_plot(norm.numpy(), cols, f"{out_prefix}_transparent.png", transparent=True)
 
 
-def _try_plot(actor_norm, cols, path):
+def _try_plot(actor_norm, cols, path, transparent=False):
     try:
         import matplotlib
 
@@ -218,7 +219,7 @@ def _try_plot(actor_norm, cols, path):
     ax.set_title("Actor: entity sensitivity per robot (row-normalized)")
     fig.colorbar(im, ax=ax, fraction=0.046)
     fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig(path, dpi=150, transparent=transparent)
     print(f"saved heatmap to {path}")
 
 

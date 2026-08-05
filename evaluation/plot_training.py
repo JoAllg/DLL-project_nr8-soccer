@@ -4,13 +4,16 @@ Training-curve figures from a wandb run (the only place the run data lives).
 
 Two figures:
 
-  1. `<prefix>_episodes.png` - episode length (left axis) and episodic return
+  1. `<prefix>_episodes` - episode length (left axis) and episodic return
      (right axis) over global_step, with the stage switches marked on the x-axis.
-  2. `<prefix>_rewards.png`  - reward composition: the share each reward term
+  2. `<prefix>_rewards`  - reward composition: the share each reward term
      contributes to the episode's total reward mass, at most `--bands` bands
      (largest terms by mean |contribution|, the rest folded into "other").
      Shares, not raw sums, because terms have opposite signs (the time penalty
      is negative) and a signed stack does not read.
+
+Each is written twice: `<name>.png` on white and `<name>_transparent.png` with
+no background, for slides/posters that are not white.
 
 Stage switches are read off `charts/stage_id`; they are drawn as unlabeled
 markers, the figure never says which stage is which.
@@ -19,7 +22,7 @@ History is fetched once and cached as .npz next to the outputs, so re-styling
 a plot costs no API call. Delete the cache (or pass --refresh) to re-fetch.
 
     uv run python evaluation/plot_training.py \
-        --run /models-albert-ludwigs-universit-t-freiburg/joshua/runs/2zwe9huo
+        --run /models-albert-ludwigs-universit-t-freiburg/joshua/runs/laafgmd0
 """
 
 import argparse
@@ -119,17 +122,32 @@ def _mark_switches(ax, switches, color="0.45", on_top=False):
         sec.spines["bottom"].set_visible(False)
 
 
-def _xscale(ax, x):
-    ax.set_xlim(x.min(), x.max())
+# both figures are meant to be stacked, so they share a figure size, a data
+# x-range and a fixed axes rectangle - tight_layout would size the axes box off
+# each figure's own decorations (the twin y-axis on one, the legend on the
+# other) and the two x-axes would come out different widths
+FIGSIZE = (7.5, 4.0)
+AXES_BOX = dict(left=0.11, right=0.89)
+
+
+def _save(fig, path):
+    """Write both variants: `<path>.png` on white, `<path>_transparent.png` without."""
+    fig.savefig(f"{path}.png", dpi=200)
+    fig.savefig(f"{path}_transparent.png", dpi=200, transparent=True)
+    print(f"saved {path}.png and {path}_transparent.png")
+
+
+def _xscale(ax, xlim):
+    ax.set_xlim(*xlim)
     ax.set_xlabel("environment steps (millions)")
     ax.xaxis.set_major_formatter(lambda v, _: f"{v / 1e6:g}")
 
 
-def plot_episodes(data, switches, window, path):
+def plot_episodes(data, switches, window, xlim, path):
     x_len, length = data[f"{LENGTH_KEY}/x"], smooth(data[LENGTH_KEY], window)
     x_ret, ret = data[f"{RETURN_KEY}/x"], smooth(data[RETURN_KEY], window)
 
-    fig, ax_len = plt.subplots(figsize=(7.5, 4.0))
+    fig, ax_len = plt.subplots(figsize=FIGSIZE)
     c_len, c_ret = "tab:blue", "tab:red"
 
     ax_len.plot(x_len, length, color=c_len, lw=1.8, label="episode length")
@@ -142,14 +160,13 @@ def plot_episodes(data, switches, window, path):
     ax_ret.tick_params(axis="y", labelcolor=c_ret)
 
     _mark_switches(ax_len, switches)
-    _xscale(ax_len, x_len)
-    ax_ret.set_xlim(ax_len.get_xlim())
+    _xscale(ax_len, xlim)
+    ax_ret.set_xlim(*xlim)
     ax_len.set_title("Episode length and return (dashed: stage switch)")
     ax_len.set_zorder(ax_ret.get_zorder() + 1)
     ax_len.patch.set_visible(False)
-    fig.tight_layout()
-    fig.savefig(path, dpi=200)
-    print(f"saved {path}")
+    fig.subplots_adjust(top=0.90, bottom=0.155, **AXES_BOX)
+    _save(fig, path)
 
 
 def _bin_mean(x, y, edges):
@@ -207,21 +224,24 @@ def reward_bands(data, n_bands, n_bins, bin_smooth):
     return x, labels, np.stack(rows)
 
 
-def plot_rewards(data, switches, n_bands, n_bins, bin_smooth, path):
+def plot_rewards(data, switches, n_bands, n_bins, bin_smooth, xlim, path):
     x, labels, shares = reward_bands(data, n_bands, n_bins, bin_smooth)
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.0))
+    fig, ax = plt.subplots(figsize=FIGSIZE)
     colors = plt.get_cmap("viridis")(np.linspace(0.15, 0.9, len(labels)))
+    # bin centres sit half a bin inside the data range: extend the outer
+    # samples to the edges so the stack fills the shared x-range
+    x = np.concatenate([[xlim[0]], x, [xlim[1]]])
+    shares = np.column_stack([shares[:, 0], shares, shares[:, -1]])
     ax.stackplot(x, shares, labels=labels, colors=colors, edgecolor="none")
     ax.set_ylim(0, 1)
     ax.set_ylabel("share of episode reward mass")
     _mark_switches(ax, switches, color="white", on_top=True)
-    _xscale(ax, x)
+    _xscale(ax, xlim)
     ax.set_title("Reward composition (dashed: stage switch)")
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=len(labels), frameon=False)
-    fig.tight_layout()
-    fig.savefig(path, dpi=200)
-    print(f"saved {path}")
+    fig.subplots_adjust(top=0.90, bottom=0.28, **AXES_BOX)
+    _save(fig, path)
 
 
 def main():
@@ -243,9 +263,13 @@ def main():
     switches = stage_switches(data[f"{STAGE_KEY}/x"], data[STAGE_KEY])
     print(f"stage switches at steps: {[f'{s / 1e6:.2f}M' for s in switches]}")
 
-    plot_episodes(data, switches, args.smooth, f"{prefix}_episodes.png")
-    plot_rewards(data, switches, args.bands, args.reward_bins, args.reward_smooth,
-                 f"{prefix}_rewards.png")
+    # one x-range for both figures, from the full training run
+    xlim = (min(data[f"{k}/x"].min() for k in (LENGTH_KEY, RETURN_KEY)),
+            max(data[f"{k}/x"].max() for k in (LENGTH_KEY, RETURN_KEY)))
+
+    plot_episodes(data, switches, args.smooth, xlim, f"{prefix}_episodes")
+    plot_rewards(data, switches, args.bands, args.reward_bins, args.reward_smooth, xlim,
+                 f"{prefix}_rewards")
 
 
 if __name__ == "__main__":
