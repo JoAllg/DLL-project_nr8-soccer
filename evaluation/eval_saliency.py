@@ -173,21 +173,23 @@ def _norm_rows(mat):
 
 
 def report(crit_mean, act_mean, out_prefix=None):
+    has_opp = crit_mean["opponents"].numel() > 0
     ball = crit_mean["ball"].mean().item() if crit_mean["ball"].numel() else 0.0
     tm = crit_mean["teammates"].mean().item() if crit_mean["teammates"].numel() else 0.0
-    opp = crit_mean["opponents"].mean().item() if crit_mean["opponents"].numel() else 0.0
+    opp = crit_mean["opponents"].mean().item() if has_opp else 0.0
     total = max(ball + tm + opp, 1e-8)
     print("\n=== Critic value V(s): entity importance (share) ===")
     print(f"  ball       {ball:8.4f}  ({100 * ball / total:5.1f}%)")
     print(f"  teammates  {tm:8.4f}  ({100 * tm / total:5.1f}%)")
-    print(f"  opponents  {opp:8.4f}  ({100 * opp / total:5.1f}%)")
+    if has_opp:
+        print(f"  opponents  {opp:8.4f}  ({100 * opp / total:5.1f}%)")
 
-    cols = ["ball", "self", "teammates_other", "opponents"]
+    cols = ["ball", "self", "teammate", "opponents"][: 4 if has_opp else 3]
     print("\n=== Actor action: per-robot entity sensitivity (row-normalized) ===")
     print("  robot | " + " ".join(f"{c:>16}" for c in cols))
-    norm = _norm_rows(act_mean)
+    norm = _norm_rows(act_mean[:, : len(cols)])
     for i in range(act_mean.shape[0]):
-        print(f"  {i:>5} | " + " ".join(f"{norm[i, j].item():16.3f}" for j in range(4)))
+        print(f"  {i:>5} | " + " ".join(f"{norm[i, j].item():16.3f}" for j in range(len(cols))))
 
     if out_prefix:
         np.savez(
@@ -212,11 +214,17 @@ def _try_plot(actor_norm, cols, path, transparent=False):
     except ImportError:
         print("matplotlib not available; skipping heatmap")
         return
+    vmax = float(actor_norm.max())
     fig, ax = plt.subplots(figsize=(6, 1 + 0.5 * actor_norm.shape[0]))
-    im = ax.imshow(actor_norm, aspect="auto", cmap="viridis", vmin=0, vmax=1)
+    im = ax.imshow(actor_norm, aspect="auto", cmap="viridis", vmin=0, vmax=vmax)
+    for i in range(actor_norm.shape[0]):
+        for j in range(len(cols)):
+            v = actor_norm[i, j]
+            ax.text(j + 0.45, i + 0.42, f"{v:.2f}", ha="right", va="bottom",
+                    color="white" if v < 0.6 * vmax else "black")
     ax.set_xticks(range(len(cols)), cols, rotation=30, ha="right")
     ax.set_yticks(range(actor_norm.shape[0]), [f"robot {i}" for i in range(actor_norm.shape[0])])
-    ax.set_title("Actor: entity sensitivity per robot (row-normalized)")
+    ax.set_title("Share of each robot's action sensitivity")
     fig.colorbar(im, ax=ax, fraction=0.046)
     fig.tight_layout()
     fig.savefig(path, dpi=150, transparent=transparent)
