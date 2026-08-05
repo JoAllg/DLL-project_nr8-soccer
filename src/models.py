@@ -6,6 +6,7 @@ import torch.nn as nn
 
 ### MLP Model
 
+
 # CleanRL/PPO convention: orthogonal init preserves activation/gradient norms through the layer
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
@@ -44,6 +45,7 @@ class MLP_actor(nn.Module):
 
 
 ### Transformer model
+
 
 @dataclass(frozen=True)
 class TokenLayout:
@@ -94,23 +96,26 @@ class TransformerBackbone(nn.Module):
     (B, n, width + 2), where the last dimension is composed of the raw features plus [team_size, opp_size] counts.
     """
 
-    def __init__(self, layout: TokenLayout, d_model, n_layers, n_heads, ff_dim, dropout):
+    def __init__(
+        self, layout: TokenLayout, d_model, n_layers, n_heads, ff_dim, dropout
+    ):
         super().__init__()
-        # per-type projections because feature widths differ (ball/teammate/
-        # opponent). All three projections always exist (even with 0
-        # opponents) so that state_dict shapes stay identical across
-        # curriculum stages.
         self.ball_embed = layer_init(nn.Linear(layout.ball_dim + 2, d_model))
         self.teammate_embed = layer_init(nn.Linear(layout.teammate_dim + 2, d_model))
         self.opponent_embed = layer_init(nn.Linear(layout.opponent_dim + 2, d_model))
-        # pre-LN (norm_first) is more stable than post-LN for RL transformers (cleanrl/ppo_trxl.py:211)
-        # no padding mask: team size is fixed within a run, never mixed in a batch
+
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model, n_heads, dim_feedforward=ff_dim, dropout=dropout,
-            batch_first=True, norm_first=True,
+            d_model,
+            n_heads,
+            dim_feedforward=ff_dim,
+            dropout=dropout,
+            batch_first=True,
+            norm_first=True,
         )
         self.encoder = nn.TransformerEncoder(
-            encoder_layer, n_layers, norm=nn.LayerNorm(d_model),
+            encoder_layer,
+            n_layers,
+            norm=nn.LayerNorm(d_model),
             enable_nested_tensor=False,
         )
 
@@ -131,10 +136,21 @@ class TransformerActor(nn.Module):
     inform the result via attention only. One shared head keeps weights
     independent of team size."""
 
-    def __init__(self, layout: TokenLayout, act_dim_per_robot, d_model, n_layers, n_heads, ff_dim, dropout):
+    def __init__(
+        self,
+        layout: TokenLayout,
+        act_dim_per_robot,
+        d_model,
+        n_layers,
+        n_heads,
+        ff_dim,
+        dropout,
+    ):
         super().__init__()
         self.n_teammates = layout.n_teammates
-        self.backbone = TransformerBackbone(layout, d_model, n_layers, n_heads, ff_dim, dropout)
+        self.backbone = TransformerBackbone(
+            layout, d_model, n_layers, n_heads, ff_dim, dropout
+        )
         self.action_head = nn.Sequential(
             layer_init(nn.Linear(d_model, d_model)),
             nn.Tanh(),
@@ -144,7 +160,7 @@ class TransformerActor(nn.Module):
 
     def forward(self, ball, teammates, opponents):
         hidden = self.backbone(ball, teammates, opponents)
-        # token order is ball, teammates, opponents -> teammates start at 1
+        # token order: ball, teammates, opponents -> teammates start at 1
         own = hidden[:, 1 : 1 + self.n_teammates]
         return self.action_head(own)  # (B, n_teammates, act_dim_per_robot)
 
@@ -152,16 +168,29 @@ class TransformerActor(nn.Module):
 class TransformerCritic(nn.Module):
     """Separate encoder (not shared with the actor); pools all entity tokens into a scalar value."""
 
-    def __init__(self, layout: TokenLayout, d_model, n_layers, n_heads, ff_dim, dropout, pooling="mean"):
+    def __init__(
+        self,
+        layout: TokenLayout,
+        d_model,
+        n_layers,
+        n_heads,
+        ff_dim,
+        dropout,
+        pooling="mean",
+    ):
         super().__init__()
         if pooling not in ("mean", "max", "attention"):
             raise ValueError(f"unknown critic pooling '{pooling}'")
         self.pooling = pooling
-        self.backbone = TransformerBackbone(layout, d_model, n_layers, n_heads, ff_dim, dropout)
+        self.backbone = TransformerBackbone(
+            layout, d_model, n_layers, n_heads, ff_dim, dropout
+        )
         if pooling == "attention":
             # PMA: single learned query, zero-init starts as ~uniform (mean) pooling
             self.pool_query = nn.Parameter(torch.zeros(1, 1, d_model))
-            self.pool_attn = nn.MultiheadAttention(d_model, num_heads=1, batch_first=True)
+            self.pool_attn = nn.MultiheadAttention(
+                d_model, num_heads=1, batch_first=True
+            )
         self.value_head = layer_init(nn.Linear(d_model, 1), std=1.0)
 
     def forward(self, ball, teammates, opponents):
@@ -170,7 +199,7 @@ class TransformerCritic(nn.Module):
             pooled = hidden.mean(dim=1)
         elif self.pooling == "max":
             pooled = hidden.max(dim=1).values
-        else: # self.pooling == "attention"
+        else:  # self.pooling == "attention"
             query = self.pool_query.expand(hidden.shape[0], -1, -1)
             pooled, _ = self.pool_attn(query, hidden, hidden, need_weights=False)
             pooled = pooled.squeeze(1)

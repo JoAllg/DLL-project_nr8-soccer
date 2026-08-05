@@ -76,7 +76,12 @@ class SSLDynamicRobots(SSLBaseEnv):
     TEAMMATE_DIM = 8  # [x, y, sin(θ), cos(θ), vx, vy, vθ, role_index]
     OPPONENT_DIM = 8  # [x, y, sin(θ), cos(θ), vx, vy, vθ, role_index]
 
-    DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick_forward": 0.1, "goal": 100.0}
+    DEFAULT_REWARD_WEIGHTS = {
+        "proximity": 0.1,
+        "progress": 0.8,
+        "kick_forward": 0.1,
+        "goal": 100.0,
+    }
 
     AreaTuple = dict[str, tuple[float, float]]
 
@@ -104,7 +109,11 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.observation_space = Box(
             low=-1.0,
             high=1.0,
-            shape=(4 + n_robots_blue * self.TEAMMATE_DIM + n_robots_yellow * self.OPPONENT_DIM,),
+            shape=(
+                4
+                + n_robots_blue * self.TEAMMATE_DIM
+                + n_robots_yellow * self.OPPONENT_DIM,
+            ),
         )
         self.episode_steps = 0
         self.time_limit_reached = False
@@ -144,15 +153,21 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.allowed_positions_ball = allowed_positions_ball
 
         # reward configuration: name -> weight, resolved to _reward_{name} methods
-        self.reward_weights = dict(rewards if rewards is not None else self.DEFAULT_REWARD_WEIGHTS)
+        self.reward_weights = dict(
+            rewards if rewards is not None else self.DEFAULT_REWARD_WEIGHTS
+        )
         unknown = [
-            name for name in self.reward_weights if not callable(getattr(self, f"_reward_{name}", None))
+            name
+            for name in self.reward_weights
+            if not callable(getattr(self, f"_reward_{name}", None))
         ]
         if unknown:
             raise ValueError(
                 f"unknown reward names {unknown}, available: {sorted(self.DEFAULT_REWARD_WEIGHTS)}"
             )
-        self.reward_functions = {name: getattr(self, f"_reward_{name}") for name in self.reward_weights}
+        self.reward_functions = {
+            name: getattr(self, f"_reward_{name}") for name in self.reward_weights
+        }
         self.episode_reward_breakdown = {name: 0.0 for name in self.reward_weights}
         self.episode_pass_count = 0
         self.episode_goal_count = 0
@@ -164,7 +179,9 @@ class SSLDynamicRobots(SSLBaseEnv):
         # of a live module (one fd per parameter storage); SyncVectorEnv passes the
         # module directly since nothing crosses a pipe.
         if isinstance(agent, (bytes, bytearray)):
-            agent = torch.load(io.BytesIO(agent), map_location="cpu", weights_only=False)
+            agent = torch.load(
+                io.BytesIO(agent), map_location="cpu", weights_only=False
+            )
         self.opponent_policy = AgentOpponentPolicy(agent)
 
     def reset(self, *, seed=None, options=None):
@@ -172,7 +189,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         if self.opponent_policy is not None and hasattr(self.opponent_policy, "reset"):
             self.opponent_policy.reset()
         return super().reset(seed=seed, options=options)
-    
+
     def step(self, action):
         """SSLBaseEnv reports the time limit as `terminated`; split it back out into
         `truncated` so PPO bootstraps V(s_T) instead of learning that the world ends
@@ -184,7 +201,6 @@ class SSLDynamicRobots(SSLBaseEnv):
         info["episode_goal_count"] = self.episode_goal_count
         info["episode_reward_breakdown"] = dict(self.episode_reward_breakdown)
         return obs, reward, done and not truncated, truncated, info
-
 
     def _build_obs_for(self, my_robots, opp_robots, mirror: bool):
         """mirror=True flips x and heading so the caller's team is always
@@ -218,7 +234,10 @@ class SSLDynamicRobots(SSLBaseEnv):
                 sign * robot.v_x / self.max_v,
                 sign * robot.v_y / self.max_v,
                 robot.v_theta / self.max_w,
-                i / max(1, self.n_robots_yellow - 1),  # normalized opponent index: 0.0 or 1.0
+                i
+                / max(
+                    1, self.n_robots_yellow - 1
+                ),  # normalized opponent index: 0.0 or 1.0
             )
             for i, robot in enumerate(opp_robots.values())
         ]
@@ -237,7 +256,9 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     def _frame_to_observations(self):
         return self._build_obs_for(
-            my_robots=self.frame.robots_blue, opp_robots=self.frame.robots_yellow, mirror=False
+            my_robots=self.frame.robots_blue,
+            opp_robots=self.frame.robots_yellow,
+            mirror=False,
         )
 
     def _get_commands(self, action):
@@ -292,21 +313,25 @@ class SSLDynamicRobots(SSLBaseEnv):
             self.episode_steps = 0
             self.time_limit_reached = True
             return 0, True
-        
+
         ball = self.frame.ball
         half_length = self.field.length / 2
         half_width = self.field.width / 2
 
-        in_goal_scored = ball.x > half_length and abs(ball.y) < self.field.goal_width / 2
+        in_goal_scored = (
+            ball.x > half_length and abs(ball.y) < self.field.goal_width / 2
+        )
         in_goal_own = ball.x < -half_length and abs(ball.y) < self.field.goal_width / 2
-        ball_out = (abs(ball.x) > half_length or abs(ball.y) > half_width) and not (in_goal_scored or in_goal_own)
+        ball_out = (abs(ball.x) > half_length or abs(ball.y) > half_width) and not (
+            in_goal_scored or in_goal_own
+        )
 
         # End episode if ball leaves the field (not a goal) or an own goal is conceded
         if ball_out or in_goal_own:
             self.episode_steps = 0
             return -1.0, True
 
-        #reward calculation (before any respawn, so _reward_goal still sees the goal)
+        # reward calculation (before any respawn, so _reward_goal still sees the goal)
         reward = 0.0
         for name, weight in self.reward_weights.items():
             r = self.reward_functions[name]()
@@ -321,8 +346,12 @@ class SSLDynamicRobots(SSLBaseEnv):
                 return reward, True
             self._respawn_ball()
 
-        # For stages passing only stages. End when a number of max_passes of passes is reached 
-        if not self.goal_ends_episode and self.max_passes is not None and self.episode_pass_count >= self.max_passes:
+        # For stages passing only stages. End when a number of max_passes of passes is reached
+        if (
+            not self.goal_ends_episode
+            and self.max_passes is not None
+            and self.episode_pass_count >= self.max_passes
+        ):
             self.episode_steps = 0
             return reward, True
 
@@ -361,8 +390,10 @@ class SSLDynamicRobots(SSLBaseEnv):
                 self.last_touch_pos = np.array([self.frame.ball.x, self.frame.ball.y])
                 self.last_touch_was_blue = True
                 break
-        else: # no blue touched the ball
-            if any(robot.infrared for robot in self.frame.robots_yellow.values()): # yellow contact on ball
+        else:  # no blue touched the ball
+            if any(
+                robot.infrared for robot in self.frame.robots_yellow.values()
+            ):  # yellow contact on ball
                 self.last_touch_was_blue = False
 
     def _update_pass_shot_tracking(self):
@@ -396,7 +427,9 @@ class SSLDynamicRobots(SSLBaseEnv):
         for i, (current, last) in enumerate(
             zip(self.frame.robots_blue.values(), self.last_frame.robots_blue.values())
         ):
-            current_dist.append(np.linalg.norm([current.x - ball.x, current.y - ball.y]))
+            current_dist.append(
+                np.linalg.norm([current.x - ball.x, current.y - ball.y])
+            )
             last_dist.append(np.linalg.norm([last.x - ball.x, last.y - ball.y]))
 
             # which robot was the closest in the last frame
@@ -406,7 +439,9 @@ class SSLDynamicRobots(SSLBaseEnv):
 
         # reward if closest robot got closer
         delta = last_dist[closest_id] - current_dist[closest_id]
-        return delta / (self.max_v * self.time_step)  # <= 1 (except for additional collisions)
+        return delta / (
+            self.max_v * self.time_step
+        )  # <= 1 (except for additional collisions)
 
     def _reward_progress(self):
         """Ball progress toward the goal, normalized by max ball displacement kick_speed * time_step."""
@@ -459,13 +494,17 @@ class SSLDynamicRobots(SSLBaseEnv):
         Reward kicking over dribbling (reward_progress)
         """
         # only kick speed is counted, dribbling speed returns 0. Bounded by kick_speed.
-        return max(0.0, (self.frame.ball.v_x - self.max_v) / (self.kick_speed - self.max_v))
+        return max(
+            0.0, (self.frame.ball.v_x - self.max_v) / (self.kick_speed - self.max_v)
+        )
 
     def _reward_goal(self):
         """1.0 when the ball is in the goal, else 0.0."""
         ball = self.frame.ball
         goal_x = self.field.length / 2
-        return 1.0 if ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2 else 0.0
+        return (
+            1.0 if ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2 else 0.0
+        )
 
     def _reward_goal_close(self):
         """1.0 when the ball is in the goal AND was last touched in the attacking third.
@@ -478,7 +517,9 @@ class SSLDynamicRobots(SSLBaseEnv):
         if not in_goal:
             return 0.0
         attacking_third_x = goal_x - self.field.length / 3
-        touched_in_front = self.last_touch_x is not None and self.last_touch_x > attacking_third_x
+        touched_in_front = (
+            self.last_touch_x is not None and self.last_touch_x > attacking_third_x
+        )
         return 1.0 if touched_in_front else 0.0
 
     def _reward_out_of_bounds(self):
@@ -515,8 +556,12 @@ class SSLDynamicRobots(SSLBaseEnv):
             return 0.0
         n_pairs = len(near) * (len(near) - 1) / 2
         pen = sum(
-            max(0.0, d0 - np.hypot(a[0] - b[0], a[1] - b[1])) # d0 - (dist between two robots)
-            for a, b in itertools.combinations(near, 2) # ordered  cross-product without self-pairs
+            max(
+                0.0, d0 - np.hypot(a[0] - b[0], a[1] - b[1])
+            )  # d0 - (dist between two robots)
+            for a, b in itertools.combinations(
+                near, 2
+            )  # ordered  cross-product without self-pairs
         )
         return -pen / (n_pairs * d0)
 
@@ -550,7 +595,11 @@ class SSLDynamicRobots(SSLBaseEnv):
 
         `catch` grades how well the receiving robot is able to catch the ball (low ball speed required)
         """
-        if self.n_robots_blue < 2 or self.last_frame is None or self.last_touch_id is None:
+        if (
+            self.n_robots_blue < 2
+            or self.last_frame is None
+            or self.last_touch_id is None
+        ):
             return 0.0, 0.0
         if self.last_touch_pos is None:
             return 0.0, 0.0
@@ -572,10 +621,14 @@ class SSLDynamicRobots(SSLBaseEnv):
             pos = np.array([robot.x, robot.y])
             now_near = np.linalg.norm(ball - pos) <= recv_radius
             was_near = np.linalg.norm(last_ball - pos) <= recv_radius
-            if now_near and not was_near:  # ball was not near to the robot that accepts the ball
+            if (
+                now_near and not was_near
+            ):  # ball was not near to the robot that accepts the ball
                 # 1.0 for a ball arriving at rest, fading to 0.5 at max_catch_speed
                 v_ball = np.hypot(self.frame.ball.v_x, self.frame.ball.v_y)
-                catch = 0.5 + 0.5 * float(np.clip(1.0 - v_ball / max_catch_speed, 0.0, 1.0))
+                catch = 0.5 + 0.5 * float(
+                    np.clip(1.0 - v_ball / max_catch_speed, 0.0, 1.0)
+                )
                 x_gain = ball[0] - self.last_touch_pos[0]
                 direction_score = float(np.clip(x_gain / self.field.length, 0.0, 1.0))
                 # count the reception once per step: both rewards may be configured
@@ -627,10 +680,14 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     def _reward_dribble(self):
         """1.0 while a teammate keeps the ball at its dribbler. Use a very small weight."""
-        return 1.0 if any(robot.infrared for robot in self.frame.robots_blue.values()) else 0.0
-    
+        return (
+            1.0
+            if any(robot.infrared for robot in self.frame.robots_blue.values())
+            else 0.0
+        )
+
     def _reward_off_ball_positioning(self):
-        """Penalize the non-closest robot for being near the ball. 
+        """Penalize the non-closest robot for being near the ball.
 
         Forces exactly one robot to engage the ball while the other stays away,
         creating natural passer/receiver role differentiation.
@@ -639,8 +696,10 @@ class SSLDynamicRobots(SSLBaseEnv):
         if self.n_robots_blue < 2:
             return 0.0
         ball = self.frame.ball
-        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
-                 for rid, r in self.frame.robots_blue.items()}
+        dists = {
+            rid: np.hypot(r.x - ball.x, r.y - ball.y)
+            for rid, r in self.frame.robots_blue.items()
+        }
         closest_id = min(dists, key=dists.get)
         penalty = 0.0
         for rid, dist in dists.items():
@@ -659,8 +718,10 @@ class SSLDynamicRobots(SSLBaseEnv):
         if self.n_robots_blue < 2:
             return 0.0
         ball = self.frame.ball
-        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
-                 for rid, r in self.frame.robots_blue.items()}
+        dists = {
+            rid: np.hypot(r.x - ball.x, r.y - ball.y)
+            for rid, r in self.frame.robots_blue.items()
+        }
         closest_id = min(dists, key=dists.get)
         reward = 0.0
         for rid, robot in self.frame.robots_blue.items():
@@ -668,7 +729,10 @@ class SSLDynamicRobots(SSLBaseEnv):
                 continue
             x_ahead = robot.x - ball.x  # positive = ahead of ball toward goal
             dist_to_ball = dists[rid]
-            if x_ahead > 0 and 1.0 * self.field_scale < dist_to_ball < 5.0 * self.field_scale:
+            if (
+                x_ahead > 0
+                and 1.0 * self.field_scale < dist_to_ball < 5.0 * self.field_scale
+            ):
                 reward += np.clip(x_ahead / self.field.length, 0.0, 1.0)
         return reward
 
@@ -676,7 +740,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         """Direction-independent copy of _reward_receiver_positioning.
 
         1.0 per non-closest robot at passable range from the ball; no +x gate.
-        
+
         This is the counterpart _reward_off_ball_positioning lacks:
         on its own that penalty only says "get away from the ball", and is maximized
         by parking on the field border as seen in the videos.
@@ -684,14 +748,19 @@ class SSLDynamicRobots(SSLBaseEnv):
         if self.n_robots_blue < 2:
             return 0.0
         ball = self.frame.ball
-        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
-                 for rid, r in self.frame.robots_blue.items()}
+        dists = {
+            rid: np.hypot(r.x - ball.x, r.y - ball.y)
+            for rid, r in self.frame.robots_blue.items()
+        }
         closest_id = min(dists, key=dists.get)
-        return float(sum(
-            1.0
-            for rid, dist in dists.items()
-            if rid != closest_id and 2.0 * self.field_scale < dist < 5.0 * self.field_scale
-        ))
+        return float(
+            sum(
+                1.0
+                for rid, dist in dists.items()
+                if rid != closest_id
+                and 2.0 * self.field_scale < dist < 5.0 * self.field_scale
+            )
+        )
 
     def _reward_kick_without_receiver(self):
         """Penalize kicking when no teammate is in a good receiving position.
@@ -708,8 +777,10 @@ class SSLDynamicRobots(SSLBaseEnv):
             return 0.0  # no kick happened this step
 
         ball = self.frame.ball
-        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
-                 for rid, r in self.frame.robots_blue.items()}
+        dists = {
+            rid: np.hypot(r.x - ball.x, r.y - ball.y)
+            for rid, r in self.frame.robots_blue.items()
+        }
         closest_id = min(dists, key=dists.get)
 
         for rid, robot in self.frame.robots_blue.items():
@@ -742,8 +813,10 @@ class SSLDynamicRobots(SSLBaseEnv):
             return 0.0  # ball stopped dead, no direction to judge
         direction = np.array([ball.v_x, ball.v_y]) / speed
 
-        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
-                 for rid, r in self.frame.robots_blue.items()}
+        dists = {
+            rid: np.hypot(r.x - ball.x, r.y - ball.y)
+            for rid, r in self.frame.robots_blue.items()
+        }
         closest_id = min(dists, key=dists.get)
 
         for rid, robot in self.frame.robots_blue.items():
@@ -754,7 +827,9 @@ class SSLDynamicRobots(SSLBaseEnv):
             if along <= 0.0:
                 continue  # teammate is behind the kick
             perp = float(np.linalg.norm(to_mate - along * direction))
-            if perp <= self.RECV_RADIUS_SCALE * self.field_scale + self.max_v * (along / speed):
+            if perp <= self.RECV_RADIUS_SCALE * self.field_scale + self.max_v * (
+                along / speed
+            ):
                 return 0.0
 
         return -1.0
@@ -791,21 +866,25 @@ class SSLDynamicRobots(SSLBaseEnv):
         max_x, max_y = self.allowed_positions_blue["max"]
 
         # Robot 0: attacker - spawns behind the ball
-        robot0_max_x = np.clip(pos_frame.ball.x - 0.3, min_x * half_length, max_x * half_length)
+        robot0_max_x = np.clip(
+            pos_frame.ball.x - 0.3, min_x * half_length, max_x * half_length
+        )
         pos_frame.robots_blue[0] = Robot(
             x=np.random.uniform(min_x * half_length, robot0_max_x),
             y=np.random.uniform(min_y * half_width, max_y * half_width),
             theta=np.random.uniform(0, 360),
-            )
+        )
 
         # Robot 1+: receiver - spawns ahead of the ball toward goal
-        robot_min_x = np.clip(pos_frame.ball.x + 0.3, min_x * half_length, max_x * half_length)
+        robot_min_x = np.clip(
+            pos_frame.ball.x + 0.3, min_x * half_length, max_x * half_length
+        )
         for i in range(1, self.n_robots_blue):
             pos_frame.robots_blue[i] = Robot(
                 x=np.random.uniform(robot_min_x, max_x * half_length),
                 y=np.random.uniform(min_y * half_width, max_y * half_width),
                 theta=np.random.uniform(0, 360),
-                )
+            )
 
         # Spawn one robot per configured n_robots_yellow (loop does nothing if 0)
         for i in range(self.n_robots_yellow):

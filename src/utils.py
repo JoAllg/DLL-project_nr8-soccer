@@ -6,6 +6,8 @@ import numpy as np
 import gc
 import gymnasium as gym
 
+
+# Diclaimer log_new_videos: Generated with Claude to fix wandb missing videos from other stages
 def log_new_videos(video_dir, seen, sizes, step):
     """Upload freshly-recorded RecordVideo files to W&B, tagged with `step`.
 
@@ -32,7 +34,9 @@ def log_new_videos(video_dir, seen, sizes, step):
         except OSError:
             continue
         if sizes.get(path) == cur and cur > 0:
-            wandb.log({"media/video": wandb.Video(path, format="mp4"), "global_step": step})
+            wandb.log(
+                {"media/video": wandb.Video(path, format="mp4"), "global_step": step}
+            )
             seen.add(path)
             sizes.pop(path, None)
         else:
@@ -53,6 +57,7 @@ def set_seed(seed: int, deterministic: bool = False):
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.use_deterministic_algorithms(deterministic)
 
+
 def available_cpus() -> int:
     """CPUs this process may actually run on.
 
@@ -66,8 +71,10 @@ def available_cpus() -> int:
 
     nnodes = int(os.environ.get("SLURM_NNODES", 1))
     if nnodes > 1:
-        print(f"WARNING: Slurm allocation spans {nnodes} nodes but only this node's "
-              f"{cpus} CPUs are usable — request --nodes=1 --ntasks=1 --cpus-per-task=N")
+        print(
+            f"WARNING: Slurm allocation spans {nnodes} nodes but only this node's "
+            f"{cpus} CPUs are usable — request --nodes=1 --ntasks=1 --cpus-per-task=N"
+        )
     return cpus
 
 
@@ -78,9 +85,6 @@ def get_device(cuda: bool):
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
-        # num_cuda_devices = 1 # number of gpus to use
-        # torch.cuda.set_device(0)  # Set specific GPU device to use
-        # torch.set_float32_matmul_precision('high') # Mixed precicion setting to use TensorFloat32 (TF32) mode.
     elif torch.backends.mps.is_available() and cuda:
         device = torch.device("mps")
         gc.collect()
@@ -89,12 +93,12 @@ def get_device(cuda: bool):
         device = torch.device("cpu")
 
     # Dataloader variables
-    pin_memory = (device.type == "cuda")  # Speeds up transfering dataset from CPU to GPU
+    pin_memory = device.type == "cuda"  # Speeds up transfering dataset from CPU to GPU
     # num_workers = X
 
     print(f"Using device: {device}")
 
-    return device, pin_memory#, num_cuda_devices, num_workers
+    return device, pin_memory  # , num_cuda_devices, num_workers
 
 
 # Modified from cleanlr_utils/evals/ppo_eval.py
@@ -118,7 +122,11 @@ def evaluate(
     critic_pooling="mean",
 ):
     envs = gym.vector.SyncVectorEnv(
-        [make_env(env_id, 0, capture_video, run_name, gamma, flatten=agent_type == "mlp")]
+        [
+            make_env(
+                env_id, 0, capture_video, run_name, gamma, flatten=agent_type == "mlp"
+            )
+        ]
     )
     agent = Model(
         envs,
@@ -143,7 +151,9 @@ def evaluate(
         if "episode" in infos:
             for i, r in enumerate(infos["episode"]["r"]):
                 if infos["_episode"][i]:
-                    print(f"eval_episode={len(episodic_returns)}, episodic_return={r:.2f}")
+                    print(
+                        f"eval_episode={len(episodic_returns)}, episodic_return={r:.2f}"
+                    )
                     episodic_returns.append(r)
         obs = next_obs
 

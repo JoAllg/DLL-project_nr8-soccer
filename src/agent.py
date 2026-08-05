@@ -5,7 +5,7 @@ from torch.distributions.normal import Normal
 
 import models
 
-# max team size (real soccer); normalizes the count features in _tokenize
+# max team size
 N_MAX = 11.0
 
 
@@ -44,15 +44,20 @@ class Agent(nn.Module):
                 layout, act_dim_per_robot, d_model, n_layers, n_heads, ff_dim, dropout
             )
             self.critic = models.TransformerCritic(
-                layout, d_model, n_layers, n_heads, ff_dim, dropout, pooling=critic_pooling
+                layout,
+                d_model,
+                n_layers,
+                n_heads,
+                ff_dim,
+                dropout,
+                pooling=critic_pooling,
             )
             self._apply_layout(envs, layout)
         else:
             raise ValueError(f"unknown agent_type '{agent_type}'")
-        # diagonal Gaussian, learned global (state-independent) logstd;
-        # transformer: one per per-robot action dim, shared across robots (team-size independent)
+        # diagonal Gaussian, learned global (state-independent)
+        # transformer: one per per-robot action dim, shared across robots
         logstd_dim = act_dim_per_robot if agent_type == "transformer" else act_dim_total
-        # below LOGSTD_MAX: init at the cap of 1 (torch.zeros()) left no headroom before freezing (see clamp_ below)
         self.actor_logstd = nn.Parameter(torch.full((1, logstd_dim), -0.5))
 
     def _derive_layout(self, envs):
@@ -74,13 +79,15 @@ class Agent(nn.Module):
         self.layout = layout
         self.action_shape = envs.single_action_space.shape
         self.actor.n_teammates = layout.n_teammates
-        # static scaling to ~[-1, 1], permutation-safe unlike NormalizeObservation;
-        # requires declared Box bounds to match returned values
-        # non-persistent: shape depends on team size, derived fresh from the env
-        high = np.asarray(envs.single_observation_space.high, dtype=np.float32).reshape(-1)
+        # shape depends on team size, derived from the env
+        high = np.asarray(envs.single_observation_space.high, dtype=np.float32).reshape(
+            -1
+        )
         scale = np.where(np.isfinite(high) & (high > 0), high, 1.0)
         device = self.obs_scale.device if hasattr(self, "obs_scale") else "cpu"
-        self.register_buffer("obs_scale", torch.from_numpy(scale).to(device), persistent=False)
+        self.register_buffer(
+            "obs_scale", torch.from_numpy(scale).to(device), persistent=False
+        )
 
     def load_state_dict(self, state_dict, *args, **kwargs):
         """Load, then pull actor_logstd inside its bounds.
@@ -101,7 +108,9 @@ class Agent(nn.Module):
         not per-slot). Per-entity feature widths and per-robot action width are
         baked into weight shapes, so those must match or this needs a new Agent.
         """
-        assert self.agent_type == "transformer", "set_env only applies to the transformer agent"
+        assert self.agent_type == "transformer", (
+            "set_env only applies to the transformer agent"
+        )
         layout, act_dim_per_robot = self._derive_layout(envs)
         for name, old, new in (
             ("per-robot action dim", self.actor_logstd.shape[-1], act_dim_per_robot),
@@ -121,13 +130,16 @@ class Agent(nn.Module):
         layout = self.layout
         obs = x / self.obs_scale
         batch_size = obs.shape[0]
-        # the flat obs is laid out as [ball | teammates... | opponents...];
-        # ball_end/teammates_end mark the segment boundaries to slice out of it
+        # the flat obs is [ball | teammates... | opponents...];
         ball_end = layout.ball_dim
         teammates_end = ball_end + layout.n_teammates * layout.teammate_dim
         ball = obs[:, :ball_end].reshape(batch_size, 1, layout.ball_dim)
-        teammates = obs[:, ball_end:teammates_end].reshape(batch_size, layout.n_teammates, layout.teammate_dim)
-        opponents = obs[:, teammates_end:].reshape(batch_size, layout.n_opponents, layout.opponent_dim)
+        teammates = obs[:, ball_end:teammates_end].reshape(
+            batch_size, layout.n_teammates, layout.teammate_dim
+        )
+        opponents = obs[:, teammates_end:].reshape(
+            batch_size, layout.n_opponents, layout.opponent_dim
+        )
         # only size signal (no padding/masking); n/N_MAX keeps it in (0, 1]
         # so untrained team sizes don't push embeddings out of distribution
         # (see wiki/team-size-generalization.md)
@@ -136,7 +148,9 @@ class Agent(nn.Module):
         )
 
         def with_counts(tokens):
-            return torch.cat([tokens, count_features.expand(batch_size, tokens.shape[1], 2)], dim=-1)
+            return torch.cat(
+                [tokens, count_features.expand(batch_size, tokens.shape[1], 2)], dim=-1
+            )
 
         return with_counts(ball), with_counts(teammates), with_counts(opponents)
 
@@ -152,7 +166,9 @@ class Agent(nn.Module):
             action_mean = self.actor(*tokens).reshape(x.shape[0], -1)
             value = self.critic(*tokens)
             # tile the shared per-robot logstd across teammates (flat, robot-major)
-            action_logstd = self.actor_logstd.repeat(1, self.layout.n_teammates).expand_as(action_mean)
+            action_logstd = self.actor_logstd.repeat(
+                1, self.layout.n_teammates
+            ).expand_as(action_mean)
         else:
             action_mean = self.actor_mean(x)
             value = self.critic(x)
@@ -169,7 +185,11 @@ class Agent(nn.Module):
             action = action_mean if deterministic else probs.sample()
         else:  # RPO: perturb the stored action's mean before re-evaluating
             action = action.reshape(x.shape[0], -1)
-            z = torch.FloatTensor(action_mean.shape).uniform_(-self.rpo_alpha, self.rpo_alpha).to(x.device)
+            z = (
+                torch.FloatTensor(action_mean.shape)
+                .uniform_(-self.rpo_alpha, self.rpo_alpha)
+                .to(x.device)
+            )
             action_mean = action_mean + z
             probs = Normal(action_mean, action_std)
         # sum over action dims and teammates: whole team is one PPO agent,

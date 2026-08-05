@@ -203,7 +203,9 @@ class SceneArgs:
     """open the window fullscreen instead of resizable"""
 
 
-def _make_env(render_mode: str, field_type: int, robot_scale: float, scale: int, supersample: int):
+def _make_env(
+    render_mode: str, field_type: int, robot_scale: float, scale: int, supersample: int
+):
     # Everything (field, robots, ball) is drawn from this one px/m factor, so
     # raising it is a straight resolution increase, not a zoom.
     SSLRenderField._scale = scale * supersample
@@ -266,7 +268,9 @@ def _save(env, name: str, out_dir: str, supersample: int) -> str:
         # pygame draws without antialiasing, so downsampling an oversized render
         # is what smooths the robot/ball edges
         w, h = surface.get_size()
-        surface = pygame.transform.smoothscale(surface, (w // supersample, h // supersample))
+        surface = pygame.transform.smoothscale(
+            surface, (w // supersample, h // supersample)
+        )
     pygame.image.save(surface, path)
     return path
 
@@ -285,7 +289,9 @@ def main(args: SceneArgs) -> None:
         env.close()
         return
 
-    env = _make_env("human", args.field_type, args.robot_scale, args.scale, args.supersample)
+    env = _make_env(
+        "human", args.field_type, args.robot_scale, args.scale, args.supersample
+    )
     open_window(env, args.fullscreen)
 
     idx = names.index(args.scene)
