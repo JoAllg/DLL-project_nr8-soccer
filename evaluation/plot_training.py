@@ -21,12 +21,22 @@ markers, the figure never says which stage is which.
 History is fetched once and cached as .npz next to the outputs, so re-styling
 a plot costs no API call. Delete the cache (or pass --refresh) to re-fetch.
 
+A refresh reads the run's `run-<id>-history` artifact (the parquet shards the
+history actually lives in), not the sampledHistory API: that endpoint scans the
+whole history per request and stops returning at all once a run gets long (this
+one is 2GB / ~130M rows over 132M steps, and a single-key query ran 600s without
+answering). Shards are pulled one at a time and deleted after reading, so peak
+disk is one shard rather than the full artifact - and wandb's own artifact cache
+makes a second refresh take seconds.
+
     uv run python evaluation/plot_training.py \
         --run /models-albert-ludwigs-universit-t-freiburg/joshua/runs/laafgmd0
 """
 
 import argparse
 import pathlib
+import shutil
+import time
 
 import matplotlib
 import numpy as np
@@ -40,30 +50,29 @@ STAGE_KEY = "charts/stage_id"
 # wandb's `_step` is the global_step the metric was logged at (ppo.py passes
 # global_step as the tensorboard step), so no separate x key has to be fetched
 X_KEY = "_step"
+# every logged scalar group. media/video is a dict column and the _-prefixed
+# ones are wandb bookkeeping, so neither is a metric; the rest are cached even
+# when these two figures do not draw them, because a refresh is the expensive part
+PREFIXES = ("charts/", "rewards/", "losses/", "perf/")
 
 
-def _sampled(run, key, samples):
-    """(x, y) for one metric, backing off when the API times out.
+def _history_artifact(api, run_path):
+    """The `run-<id>-history` artifact for a run path (entity/project/runs/id)."""
+    parts = [p for p in run_path.split("/") if p and p != "runs"]
+    entity, project, run_id = parts[-3], parts[-2], parts[-1]
+    return api.artifact(f"{entity}/{project}/run-{run_id}-history:latest")
 
-    One key per request: this run has >100M steps and the multi-key form of the
-    sampled-history query times out server-side on it. Sampled rather than
-    scan_history because a full scan takes minutes and these curves are
-    smoothed anyway - a few thousand points outresolve the figure already.
-    """
-    while True:
-        try:
-            rows = run.history(keys=[key], samples=samples, pandas=False)
-            break
-        except Exception as err:  # CommError and the service-busy wrappers under it
-            if samples <= 250:
-                raise
-            samples //= 2
-            print(f"  {key}: {type(err).__name__}, retrying with samples={samples}")
-    rows = [r for r in rows if r.get(key) is not None]
-    return (
-        np.array([r[X_KEY] for r in rows], dtype=np.float64),
-        np.array([r[key] for r in rows], dtype=np.float64),
-    )
+
+def _subsample(x, y, samples):
+    """Sort by step and thin to `samples` points, uniformly over the sorted rows."""
+    order = np.argsort(x, kind="stable")
+    x, y = x[order], y[order]
+    if len(x) <= samples:
+        return x, y
+    # uniform stride, not the first N: reward_bands re-bins by step anyway, and
+    # the curves are smoothed, so an even spread over the run is what matters
+    idx = np.linspace(0, len(x) - 1, samples).round().astype(int)
+    return x[idx], y[idx]
 
 
 def fetch(run_path, cache, samples, refresh):
@@ -71,20 +80,49 @@ def fetch(run_path, cache, samples, refresh):
         print(f"using cached history {cache}")
         return dict(np.load(cache))
 
+    import pyarrow.parquet as pq
     import wandb
 
-    run = wandb.Api().run(run_path)
-    reward_keys = sorted(k for k in run.summary.keys() if k.startswith("rewards/"))
-    print(f"fetching {run.name} ({run.state}); reward terms: {len(reward_keys)}")
+    api = wandb.Api(timeout=300)
+    art = _history_artifact(api, run_path)
+    print(f"fetching {art.name} ({art.size / 1e6:.0f}MB, {len(art.manifest.entries)} shards)")
+
+    work = cache.parent / "_history_shards"
+    acc = {}  # key -> (list of x chunks, list of y chunks)
+    for name in sorted(art.manifest.entries):
+        t = time.time()
+        path = art.get_entry(name).download(root=str(work))
+        pf = pq.ParquetFile(path)
+        # per shard, not once: the shards do not all carry the same columns
+        # (a reward term that starts in a later stage is absent from the early ones)
+        have = sorted(n for n in pf.schema_arrow.names if n.startswith(PREFIXES))
+        acc.update({k: ([], []) for k in have if k not in acc})
+        # batched: the widest shard here is 49M rows x 32 metrics, ~12GB as one
+        # float64 table. Rows are near-empty (each scalar is logged as its own
+        # row), so only the non-null values survive a batch.
+        for batch in pf.iter_batches(batch_size=2_000_000, columns=[X_KEY] + have):
+            step = batch[X_KEY].to_numpy(zero_copy_only=False).astype(np.float64)
+            for key in have:
+                y = batch[key].to_numpy(zero_copy_only=False).astype(np.float64)
+                mask = ~np.isnan(y)
+                if not mask.any():
+                    continue
+                acc[key][0].append(step[mask])
+                acc[key][1].append(y[mask])
+        pathlib.Path(path).unlink()  # wandb keeps its own cached copy for next time
+        print(f"  {name}: {pf.metadata.num_rows} rows, {time.time() - t:.1f}s")
 
     data = {}
-    for key in [LENGTH_KEY, RETURN_KEY, STAGE_KEY] + reward_keys:
-        x, y = _sampled(run, key, samples)
+    for key, (xs, ys) in sorted(acc.items()):
+        if not xs:
+            continue
         # each metric keeps its own x: they are logged at different steps
-        # (episode ends vs. iteration ends) and are sampled independently
+        # (episode ends vs. iteration ends) and are thinned independently
+        x, y = _subsample(np.concatenate(xs), np.concatenate(ys), samples)
         data[f"{key}/x"], data[key] = x, y
-        print(f"  {key}: {len(x)} points")
+        print(f"  {key}: {len(x)} points, steps {x.min():.0f}..{x.max():.0f}")
 
+    shutil.rmtree(work, ignore_errors=True)
     cache.parent.mkdir(parents=True, exist_ok=True)
     np.savez(cache, **data)
     print(f"cached history to {cache}")
@@ -249,7 +287,7 @@ def main():
     p.add_argument("--run", default="/models-albert-ludwigs-universit-t-freiburg/joshua/runs/2zwe9huo",
                    help="wandb run path (entity/project/runs/id)")
     p.add_argument("--out-prefix", default=str(pathlib.Path(__file__).parent / "results" / "training"))
-    p.add_argument("--samples", type=int, default=10000, help="history points to request per metric")
+    p.add_argument("--samples", type=int, default=10000, help="history points kept per metric")
     p.add_argument("--smooth", type=int, default=80, help="moving-average window in samples")
     p.add_argument("--bands", type=int, default=4, help="max reward bands (last one is 'other')")
     p.add_argument("--reward-bins", type=int, default=40, help="step bins the reward shares average over")
