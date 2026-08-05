@@ -297,12 +297,12 @@ class SSLDynamicRobots(SSLBaseEnv):
         half_length = self.field.length / 2
         half_width = self.field.width / 2
 
-        # either goal mouth, so an own goal is handled the same way as a scored one
-        in_goal = abs(ball.x) > half_length and abs(ball.y) < self.field.goal_width / 2
-        ball_out = (abs(ball.x) > half_length or abs(ball.y) > half_width) and not in_goal
+        in_goal_scored = ball.x > half_length and abs(ball.y) < self.field.goal_width / 2
+        in_goal_own = ball.x < -half_length and abs(ball.y) < self.field.goal_width / 2
+        ball_out = (abs(ball.x) > half_length or abs(ball.y) > half_width) and not (in_goal_scored or in_goal_own)
 
-        # End episode if ball leaves the field (not a goal)
-        if ball_out:
+        # End episode if ball leaves the field (not a goal) or an own goal is conceded
+        if ball_out or in_goal_own:
             self.episode_steps = 0
             return -1.0, True
 
@@ -314,14 +314,15 @@ class SSLDynamicRobots(SSLBaseEnv):
             self.episode_reward_breakdown[name] += weighted
             reward += weighted
 
-        if in_goal:
+        if in_goal_scored:
             self.episode_goal_count += 1
             if self.goal_ends_episode:
                 self.episode_steps = 0
                 return reward, True
             self._respawn_ball()
 
-        if self.max_passes is not None and self.episode_pass_count >= self.max_passes:
+        # For stages passing only stages. End when a number of max_passes of passes is reached 
+        if not self.goal_ends_episode and self.max_passes is not None and self.episode_pass_count >= self.max_passes:
             self.episode_steps = 0
             return reward, True
 
