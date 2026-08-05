@@ -14,7 +14,7 @@ from agent import Agent
 from config import Area
 from .opponent import OPPONENT_POLICIES, AgentOpponentPolicy
 
-render_ball.Ball.radius = 0.04  # 7x bigger for visibility
+render_ball.Ball.radius = 0.04  # Increases visibility
 
 
 class SimFieldRenderField(SSLRenderField):
@@ -50,6 +50,7 @@ class SSLDynamicRobots(SSLBaseEnv):
 
     # Values to modify: episode length and player/ball speed-up
     max_steps = 1000  # episode limit (25 s at 0.025 s/step)
+    max_passes = 3  # completed passes that end the episode (None: no limit)
     speed_up = 1.5  # multiplier on both robot and ball speed vs. realistic pace
 
     # Speeds anchored to real soccer: a fast pro covers the 105 m pitch in ~12 s
@@ -62,11 +63,18 @@ class SSLDynamicRobots(SSLBaseEnv):
     # Division-A field (field_type=0) and scale linearly with length
     FIELD_REF_LENGTH = 12.0  # m
 
+    # Fraction of the half-field a respawned ball stays within, so it never
+    # reappears hugging a border where it immediately rolls out again.
+    RESPAWN_INSET = 0.7
+
+    D_MIN_SCALE = 2.0  # min ball travel for a pass to register
+    RECV_RADIUS_SCALE = 0.6  # how close the ball must come to count as received
+
     # Per-entity token feature widths (models.token_layout_from_env reads these);
     # must match the segments _frame_to_observations() lays out below.
     BALL_DIM = 4  # [x, y, vx, vy]
     TEAMMATE_DIM = 8  # [x, y, sin(θ), cos(θ), vx, vy, vθ, role_index]
-    OPPONENT_DIM = 8  # [x, y, vx, vy, vθ, role_index] (no heading observed for opponents)
+    OPPONENT_DIM = 8  # [x, y, sin(θ), cos(θ), vx, vy, vθ, role_index]
 
     DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick_forward": 0.1, "goal": 100.0}
 
@@ -148,6 +156,8 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.episode_reward_breakdown = {name: 0.0 for name in self.reward_weights}
         self.episode_pass_count = 0
         self.episode_goal_count = 0
+        # Score-ends-episode only with a goal reward; else respawn the ball instead.
+        self.goal_ends_episode = bool({"goal", "goal_close"} & set(self.reward_weights))
 
     def set_opponent_agent(self, agent: "Agent | bytes"):
         # AsyncVectorEnv senders pass a torch.save buffer (one fd per worker) instead
@@ -169,8 +179,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         at max_steps."""
         obs, reward, done, _, info = super().step(action)
         truncated = done and self.time_limit_reached
-        # Only add episode metrics when episode ends
-        # if terminated or truncated:
+        # Pass and goal count info added
         info["episode_pass_count"] = self.episode_pass_count
         info["episode_goal_count"] = self.episode_goal_count
         info["episode_reward_breakdown"] = dict(self.episode_reward_breakdown)
@@ -288,22 +297,55 @@ class SSLDynamicRobots(SSLBaseEnv):
         half_length = self.field.length / 2
         half_width = self.field.width / 2
 
-        # End episode if ball leaves the field (not a goal)
-        in_goal = ball.x > half_length and abs(ball.y) < self.field.goal_width / 2
-        ball_out = abs(ball.x) > half_length or abs(ball.y) > half_width
+        in_goal_scored = ball.x > half_length and abs(ball.y) < self.field.goal_width / 2
+        in_goal_own = ball.x < -half_length and abs(ball.y) < self.field.goal_width / 2
+        ball_out = (abs(ball.x) > half_length or abs(ball.y) > half_width) and not (in_goal_scored or in_goal_own)
 
-        if ball_out and not in_goal:
+        # End episode if ball leaves the field (not a goal) or an own goal is conceded
+        if ball_out or in_goal_own:
             self.episode_steps = 0
             return -1.0, True
-        
-        #reward calculation
+
+        #reward calculation (before any respawn, so _reward_goal still sees the goal)
         reward = 0.0
         for name, weight in self.reward_weights.items():
             r = self.reward_functions[name]()
             weighted = weight * r
             self.episode_reward_breakdown[name] += weighted
             reward += weighted
-        return reward, self._reward_goal() > 0  # goal ends the episode even when its reward weight is not configured
+
+        if in_goal_scored:
+            self.episode_goal_count += 1
+            if self.goal_ends_episode:
+                self.episode_steps = 0
+                return reward, True
+            self._respawn_ball()
+
+        # For stages passing only stages. End when a number of max_passes of passes is reached 
+        if not self.goal_ends_episode and self.max_passes is not None and self.episode_pass_count >= self.max_passes:
+            self.episode_steps = 0
+            return reward, True
+
+        return reward, False
+
+    def _respawn_ball(self):
+        """Teleport the ball back into play, inside RESPAWN_INSET of the field.
+
+        rsim.reset is the only placement API, so the current robot poses are replayed
+        unchanged; it does zero all velocities, robots included.
+        """
+        self.frame.ball = Ball(
+            x=np.random.uniform(-1.0, 1.0) * self.RESPAWN_INSET * self.field.length / 2,
+            y=np.random.uniform(-1.0, 1.0) * self.RESPAWN_INSET * self.field.width / 2,
+        )
+        self.rsim.reset(self.frame)
+        self.frame = self.rsim.get_frame()
+        # the ball jumped: drop passer bookkeeping so the jump cannot be scored as
+        # a pass (huge travel from last_touch_pos) on the following step
+        self.last_touch_id = None
+        self.last_touch_pos = None
+        self.last_touch_x = None
+        self.pass_pending_shot = False
 
     def _update_ball_touch(self):
         """Track which teammate last touched the ball and where (infrared/dribbler contact).
@@ -423,11 +465,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         """1.0 when the ball is in the goal, else 0.0."""
         ball = self.frame.ball
         goal_x = self.field.length / 2
-        in_goal = ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2
-        if in_goal:
-            self.episode_goal_count += 1
-            return 1.0
-        return 0.0
+        return 1.0 if ball.x > goal_x and abs(ball.y) < self.field.goal_width / 2 else 0.0
 
     def _reward_goal_close(self):
         """1.0 when the ball is in the goal AND was last touched in the attacking third.
@@ -510,21 +548,21 @@ class SSLDynamicRobots(SSLBaseEnv):
 
         Returns (catch, direction_score), both 0.0 when no pass arrives this step.
 
-        `catch` grades how well the recieving robot is able to catch the ball (low ball speed required)
+        `catch` grades how well the receiving robot is able to catch the ball (low ball speed required)
         """
         if self.n_robots_blue < 2 or self.last_frame is None or self.last_touch_id is None:
             return 0.0, 0.0
         if self.last_touch_pos is None:
             return 0.0, 0.0
 
-        d_min = 2.0 * self.field_scale  # min pass length to count (m) (should be same as minimum distance in distance reward)
-        recv_radius = 0.33 * self.field_scale  # catch radius (we don't expect the robot to dribble with the ball directly)
-        max_catch_speed = self.max_v  # ball faster than this cannot be brought under control
+        d_min = self.D_MIN_SCALE * self.field_scale
+        recv_radius = self.RECV_RADIUS_SCALE * self.field_scale
+        max_catch_speed = 2.0 * self.max_v
 
         ball = np.array([self.frame.ball.x, self.frame.ball.y])
         last_ball = np.array([self.last_frame.ball.x, self.last_frame.ball.y])
 
-        # kick/pass must carry ball aways from passer for at least d_min
+        # kick/pass must carry ball away from passer for at least d_min
         if np.linalg.norm(ball - self.last_touch_pos) <= d_min:
             return 0.0, 0.0
 
@@ -535,9 +573,9 @@ class SSLDynamicRobots(SSLBaseEnv):
             now_near = np.linalg.norm(ball - pos) <= recv_radius
             was_near = np.linalg.norm(last_ball - pos) <= recv_radius
             if now_near and not was_near:  # ball was not near to the robot that accepts the ball
-                # 1.0 for a ball arriving at rest, fading to 0.0 at max_catch_speed
+                # 1.0 for a ball arriving at rest, fading to 0.5 at max_catch_speed
                 v_ball = np.hypot(self.frame.ball.v_x, self.frame.ball.v_y)
-                catch = float(np.clip(1.0 - v_ball / max_catch_speed, 0.0, 1.0))
+                catch = 0.5 + 0.5 * float(np.clip(1.0 - v_ball / max_catch_speed, 0.0, 1.0))
                 x_gain = ball[0] - self.last_touch_pos[0]
                 direction_score = float(np.clip(x_gain / self.field.length, 0.0, 1.0))
                 # count the reception once per step: both rewards may be configured
@@ -583,13 +621,8 @@ class SSLDynamicRobots(SSLBaseEnv):
         return 0.0
 
     def _reward_time(self):
-        """Constant -1.0 per step, i.e. V(s) ~= -weight * remaining steps.
-
-        Being state- and action-independent it gives no signal *within* an
-        episode; what it does is make ending the episode sooner worth more, so
-        the policy prefers scoring now over stalling. Use a tiny weight: it
-        accumulates over every step of the episode.
-        """
+        """Constant -1.0 per step. Makes ending the episode sooner worth more,
+        so the policy prefers scoring now over stalling. Use a tiny weight."""
         return -1.0
 
     def _reward_dribble(self):
@@ -597,7 +630,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         return 1.0 if any(robot.infrared for robot in self.frame.robots_blue.values()) else 0.0
     
     def _reward_off_ball_positioning(self):
-        """Penalize the non-closest robot for being near the ball. [MUSKAN Option 2]
+        """Penalize the non-closest robot for being near the ball. 
 
         Forces exactly one robot to engage the ball while the other stays away,
         creating natural passer/receiver role differentiation.
@@ -616,7 +649,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         return penalty
 
     def _reward_receiver_positioning(self):
-        """Reward the non-ball robot for being ahead of the ball in a good receiving position. [MUSKAN Option 3]
+        """Reward the non-ball robot for being ahead of the ball in a good receiving position.
 
         Specifically: the non-closest robot gets reward for being:
         - Ahead of the ball in x-direction (toward goal)
@@ -639,8 +672,29 @@ class SSLDynamicRobots(SSLBaseEnv):
                 reward += np.clip(x_ahead / self.field.length, 0.0, 1.0)
         return reward
 
+    def _reward_receiver_positioning_omni(self):
+        """Direction-independent copy of _reward_receiver_positioning.
+
+        1.0 per non-closest robot at passable range from the ball; no +x gate.
+        
+        This is the counterpart _reward_off_ball_positioning lacks:
+        on its own that penalty only says "get away from the ball", and is maximized
+        by parking on the field border as seen in the videos.
+        """
+        if self.n_robots_blue < 2:
+            return 0.0
+        ball = self.frame.ball
+        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
+                 for rid, r in self.frame.robots_blue.items()}
+        closest_id = min(dists, key=dists.get)
+        return float(sum(
+            1.0
+            for rid, dist in dists.items()
+            if rid != closest_id and 2.0 * self.field_scale < dist < 5.0 * self.field_scale
+        ))
+
     def _reward_kick_without_receiver(self):
-        """Penalize kicking when no teammate is in a good receiving position. [MUSKAN]
+        """Penalize kicking when no teammate is in a good receiving position.
 
         If robot A kicks but robot B is not positioned ahead of the ball,
         the kick is likely a direct shot attempt rather than a pass setup.
@@ -667,6 +721,43 @@ class SSLDynamicRobots(SSLBaseEnv):
                 return 0.0  # teammate is in good position, kick is fine
 
         return -1.0  # kicked without a teammate in receiving position
+
+    def _reward_kick_without_receiver_omni(self):
+        """-1.0 for a kick aimed where no teammate can meet the ball.
+
+        Direction only, unlike _reward_kick_without_receiver: distance is left to
+        _reward_pass. The lane is recv_radius widened by how far the receiver moves
+        during the flight, so a pass into space still counts.
+        """
+        if self.last_frame is None or self.n_robots_blue < 2:
+            return 0.0
+        dvx = self.frame.ball.v_x - self.last_frame.ball.v_x
+        dvy = self.frame.ball.v_y - self.last_frame.ball.v_y
+        if np.hypot(dvx, dvy) < self.max_v:
+            return 0.0  # no kick this step
+
+        ball = self.frame.ball
+        speed = np.hypot(ball.v_x, ball.v_y)
+        if speed <= 0.0:
+            return 0.0  # ball stopped dead, no direction to judge
+        direction = np.array([ball.v_x, ball.v_y]) / speed
+
+        dists = {rid: np.hypot(r.x - ball.x, r.y - ball.y)
+                 for rid, r in self.frame.robots_blue.items()}
+        closest_id = min(dists, key=dists.get)
+
+        for rid, robot in self.frame.robots_blue.items():
+            if rid == closest_id:
+                continue
+            to_mate = np.array([robot.x - ball.x, robot.y - ball.y])
+            along = float(to_mate @ direction)
+            if along <= 0.0:
+                continue  # teammate is behind the kick
+            perp = float(np.linalg.norm(to_mate - along * direction))
+            if perp <= self.RECV_RADIUS_SCALE * self.field_scale + self.max_v * (along / speed):
+                return 0.0
+
+        return -1.0
 
     def _get_initial_positions_frame(self):
 
