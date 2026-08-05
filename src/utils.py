@@ -16,9 +16,9 @@ def log_new_videos(video_dir, seen, sizes, step):
     polls (guarding against half-written files); `sizes` carries the previous poll's
     sizes and `seen` the filenames already uploaded.
 
-    `step` is logged as the `media/video_step` metric (the video's step_metric, defined
-    at wandb.init) rather than passed as wandb.log(step=...), which sync_tensorboard
-    ignores.
+    `step` is logged as the `global_step` field (the video's step_metric, defined
+    at wandb.init as `wandb.define_metric("media/video", step_metric="global_step")`)
+    rather than passed as wandb.log(step=...), which sync_tensorboard ignores.
     """
     import wandb
 
@@ -32,7 +32,7 @@ def log_new_videos(video_dir, seen, sizes, step):
         except OSError:
             continue
         if sizes.get(path) == cur and cur > 0:
-            wandb.log({"media/video": wandb.Video(path, format="mp4"), "media/video_step": step})
+            wandb.log({"media/video": wandb.Video(path, format="mp4"), "global_step": step})
             seen.add(path)
             sizes.pop(path, None)
         else:
@@ -52,6 +52,24 @@ def set_seed(seed: int, deterministic: bool = False):
     if deterministic:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.use_deterministic_algorithms(deterministic)
+
+def available_cpus() -> int:
+    """CPUs this process may actually run on.
+
+    Uses the scheduler affinity mask rather than os.cpu_count(), so a Slurm cgroup
+    (or taskset) is honoured instead of reporting the whole node's core count.
+    """
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except AttributeError:  # not Linux
+        cpus = os.cpu_count() or 1
+
+    nnodes = int(os.environ.get("SLURM_NNODES", 1))
+    if nnodes > 1:
+        print(f"WARNING: Slurm allocation spans {nnodes} nodes but only this node's "
+              f"{cpus} CPUs are usable — request --nodes=1 --ntasks=1 --cpus-per-task=N")
+    return cpus
+
 
 def get_device(cuda: bool):
     if torch.cuda.is_available() and cuda:

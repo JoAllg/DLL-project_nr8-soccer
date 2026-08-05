@@ -1,11 +1,27 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
+import io
 import os
+import resource
+import subprocess
 import time
 import warnings
 import signal
 from datetime import datetime
 
 from typing import Optional, Annotated
+
+# Pin the BLAS/OMP thread pools *before* numpy/torch load — OpenBLAS reads these at
+# import time. AsyncVectorEnv workers (context="spawn") inherit them, so each of the
+# num_envs worker processes runs single-threaded instead of sizing its pool to the
+# core count. The trainer restores its own parallelism via torch.set_num_threads below.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+# Each AsyncVectorEnv worker costs pipes plus a shared-memory fd per obs buffer; a
+# 1024 soft limit runs out well before num_envs does. Raise to the hard limit.
+_soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+if _soft < _hard:
+    resource.setrlimit(resource.RLIMIT_NOFILE, (_hard, _hard))
 
 warnings.filterwarnings(
     "ignore",
@@ -23,6 +39,7 @@ warnings.filterwarnings(
 import gymnasium as gym
 import numpy as np
 import torch
+from gymnasium.vector import AutoresetMode
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
@@ -71,7 +88,9 @@ CLI_FIELDS: dict[str, str] = {
     # Algorithm specific arguments
     "env_id": "the id of the environment",
     "total_timesteps": "total timesteps of the experiments",
-    "num_envs": "the number of parallel game environments",
+    "num_envs": "the number of parallel game environments (0 -> envs_per_cpu * available CPUs)",
+    "envs_per_cpu": "multiplier used to derive num_envs from the available CPU count when num_envs is unset",
+    "num_steps": "the number of steps to run in each environment per policy rollout (overrides every stage's `steps`)",
     "num_minibatches": "the number of mini-batches",
     "update_epochs": "the K epochs to update the policy",
     "learning_rate": "the learning rate of the optimizer",
@@ -96,8 +115,7 @@ CLI_FIELDS: dict[str, str] = {
     "target_kl": "the target KL divergence threshold",
     "rpo_alpha": "the alpha parameter for RPO", # Best values between 0.5 to 0.1
 
-
-    # Agent architecture arguments,
+    # Agent architecture arguments
     "agent_type": "the actor/critic architecture: CleanRL MLP baseline or per-entity-token transformer",
     "d_model": "(transformer) the model/embedding dimension",
     "n_layers": "(transformer) the number of encoder layers",
@@ -106,8 +124,8 @@ CLI_FIELDS: dict[str, str] = {
     "dropout": "(transformer) dropout inside encoder layers", # Should not be used (RPO/PPO regularize with action-mean perturbation and sampling noise),
     "critic_pooling": "(transformer) how the critic pools entity tokens into a scalar value",
 
-    # to be filled in runtime,
-    "config": "path to yaml file providing configuration training stages and environments",
+    # to be filled in runtime
+    "config": "yaml filename (in configs/) providing configuration training stages and environments",
     "stage_name": "which stage of the config file should be executed. None: execute all stages in Order",
     "rewards": "name of a reward_templates entry that overrides every run stage's reward weights (e.g. --rewards coop)",
     "load_model": "Path to a .cleanrl_model checkpoint to load before the first training stage.",
@@ -159,13 +177,16 @@ def upload_model_artifact(model_path: str, stage_id: int, stage_name: str, globa
     wandb.log_artifact(artifact, aliases=aliases)
 
 
-def make_env(env_id, idx, capture_video, run_name, gamma, flatten=True,
+def make_env(env_id, idx, capture_video, video_folder, gamma, flatten=True,
              environment_args: Optional[dict] = None):
     def thunk():
+        # runs inside the worker process: keep env stepping (and any opponent-agent
+        # inference) single-threaded so workers don't oversubscribe the cores
+        torch.set_num_threads(1)
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array", **(environment_args
                                                                or {}))
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+            env = gym.wrappers.RecordVideo(env, video_folder)
         else:
             env = gym.make(env_id, **(environment_args or {}))
         # flatten only for the MLP; the transformer agent skips it — flattening
@@ -210,7 +231,7 @@ def run_stage(
     agent.set_env(envs)
 
     def save_checkpoint(sig=None, frame=None):
-        print(f"saving_model checkpoint...")
+        print("saving_model checkpoint...")
         model_path = f"runs/{run_name}/{config.exp_name}_stage{stage_id}_{stage.name}_steps_{global_step}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"[stage {stage_id} at steps {global_step}] model saved to {model_path}")
@@ -244,7 +265,10 @@ def run_stage(
     values = torch.zeros((stage.steps, local_num_envs)).to(device)
 
     # For wandb video upload
-    video_dir = f"videos/{run_name}"
+    # separate subfolder per stage: RecordVideo's episode_id restarts at 0 on every
+    # new stage's env, so a shared folder would let stage N+1 overwrite stage N's
+    # video files (same name) before log_new_videos ever notices the new content
+    video_dir = f"videos/{run_name}/stage{stage_id}_{stage.name}"
     videos_seen: set[str] = set()
     videos_sizes: dict[str, int] = {}
 
@@ -255,12 +279,24 @@ def run_stage(
 
     last_save_step = 0
 
+    # throughput is measured per stage, not per run: episode length, robot count and
+    # env count all change at a stage boundary, and a run-wide average turns that step
+    # change into a slow decay that looks like a leak
+    stage_start_time = time.time()
+    stage_start_step = global_step
+
     for iteration in range(1, iterations + 1):
+        t_iter_start = time.time()
         # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
         # a decaying entropy bonus buys exploration early (finding ball/goal at all)
         # without keeping the policy noisy late in training
         frac = min(global_step / config.total_timesteps, 1.0)
         ent_coef = config.ent_coef + (config.final_ent_coef - config.ent_coef) * frac
+
+        # [MUSKAN] Rollout accumulators for scale-invariant metrics
+        rollout_passes = 0
+        rollout_goals = 0
+        rollout_episodes = 0
 
         for step in range(0, stage.steps):
             global_step += config.num_envs
@@ -281,18 +317,56 @@ def run_stage(
             rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
 
+            # Time-limit bootstrapping: GAE below cuts the value target at every
+            # `done`, which is correct for a goal but wrong for the max_steps
+            # cutoff — the episode was still going. Fold gamma*V(s_T) into the
+            # reward for truncated envs so the tail value is not thrown away.
+            # Under SAME_STEP autoreset `next_obs` is already the reset obs, so
+            # s_T has to come from infos["final_obs"].
+            if truncations.any():
+                trunc_mask = torch.as_tensor(truncations, dtype=torch.bool, device=device)
+                final_obs = np.stack(infos["final_obs"][truncations])
+                with torch.no_grad():
+                    final_values = agent.get_value(torch.Tensor(final_obs).to(device)).flatten()
+                rewards[step][trunc_mask] += config.gamma * final_values
+
             #fixed logging (rank 0 only; its envs are an accepted approximation for the parallel runs)
-            if writer is not None and "episode" in infos:
-                for i, r in enumerate(infos["episode"]["r"]):
-                    if infos["_episode"][i]:
+            # SAME_STEP autoreset nests the terminating step's info — where
+            # RecordEpisodeStatistics writes `episode` — under `final_info`
+            episode_infos = infos.get("final_info", {})
+            if writer is not None and "episode" in episode_infos:
+                for i, r in enumerate(episode_infos["episode"]["r"]):
+                    if episode_infos["_episode"][i]:
                         print(f"global_step={global_step}, episodic_return={r:.2f}")
                         writer.add_scalar("charts/episodic_return", r, global_step)
-                        writer.add_scalar("charts/episodic_length", infos["episode"]["l"][i], global_step)
+                        writer.add_scalar("charts/episodic_length", episode_infos["episode"]["l"][i], global_step)
+
+                    # [MUSKAN] Accumulate pass/goal counts per completed episode
+                    rollout_episodes += 1
+                    if "episode_pass_count" in episode_infos and episode_infos["episode_pass_count"] is not None:
+                        pc = episode_infos["episode_pass_count"][i]
+                        gc = episode_infos["episode_goal_count"][i]
+                        if pc is not None:
+                            rollout_passes += int(pc)
+                        if gc is not None:
+                            rollout_goals += int(gc)
+
+                    # [MUSKAN] Per-reward-term breakdown
+                    if "episode_reward_breakdown" in episode_infos:
+                        for name, arr in episode_infos["episode_reward_breakdown"].items():
+                            if not name.startswith("_"):
+                                writer.add_scalar(f"rewards/{name}", arr[i], global_step)
 
             # save checkpoint
             if is_main and config.save_steps > 0 and global_step - last_save_step >= config.save_steps:
                 save_checkpoint()
                 last_save_step = global_step
+
+        t_rollout_end = time.time()
+        # [MUSKAN] Log rollout-level metrics after each rollout — scale invariant
+        if writer is not None and rollout_episodes > 0:
+            writer.add_scalar("charts/passes_per_episode", rollout_passes / rollout_episodes, global_step)
+            writer.add_scalar("charts/goals_per_episode", rollout_goals / rollout_episodes, global_step)
 
         # bootstrap value if not done
         with torch.no_grad():
@@ -317,6 +391,8 @@ def run_stage(
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
+
+        t_update_start = time.time()
 
         # Optimizing the policy and value network
         b_inds = np.arange(local_batch_size)
@@ -373,6 +449,9 @@ def run_stage(
                             dist.all_reduce(param.grad.data, op=dist.ReduceOp.AVG)
                 nn.utils.clip_grad_norm_(agent.parameters(), config.max_grad_norm)
                 optimizer.step()
+                # pull back in-bounds: clamp's backward is 0 once past LOGSTD_MIN/MAX, else stuck forever
+                with torch.no_grad():
+                    agent.actor_logstd.clamp_(agent.LOGSTD_MIN, agent.LOGSTD_MAX)
                 if scheduler is not None:
                     scheduler.step()
 
@@ -399,14 +478,35 @@ def run_stage(
             writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
             writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
             writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
+            # per-action-dim exploration noise; sigma pinned at the LOGSTD_MAX cap
+            # means the policy cannot express intermediate commands (e.g. partial kick strength)
+            action_std = torch.exp(
+                agent.actor_logstd.clamp(agent.LOGSTD_MIN, agent.LOGSTD_MAX)
+            ).detach()[0]
+            for dim, std in enumerate(action_std):
+                writer.add_scalar(f"perf/action_std_{dim}", std.item(), global_step)
             writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
             writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
             writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
             writer.add_scalar("losses/explained_variance", explained_var, global_step)
-            print("SPS:", int(global_step / (time.time() - start_time)))
+            t_now = time.time()
+            iter_seconds = max(t_now - t_iter_start, 1e-9)
+            iter_steps = config.num_envs * stage.steps
+            stage_sps = int((global_step - stage_start_step) / max(t_now - stage_start_time, 1e-9))
+
+            print("SPS:", stage_sps)
             print("global_step:", global_step)
             print("stage_id:", stage_id)
-            writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            # mean since this stage began, so a stage boundary resets the baseline
+            writer.add_scalar("charts/SPS", stage_sps, global_step)
+            # this iteration only — the one that reacts immediately to a slowdown
+            writer.add_scalar("charts/SPS_instant", int(iter_steps / iter_seconds), global_step)
+            # Performance analysis metrics:
+            writer.add_scalar("perf/rollout_seconds", t_rollout_end - t_iter_start, global_step)
+            writer.add_scalar("perf/gae_seconds", t_update_start - t_rollout_end, global_step)
+            writer.add_scalar("perf/update_seconds", t_now - t_update_start, global_step)
+            writer.add_scalar("perf/iteration_seconds", iter_seconds, global_step)
+            writer.add_scalar("perf/elapsed_hours", (t_now - start_time) / 3600, global_step)
 
         if is_main and config.track and config.capture_video:
             utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
@@ -418,6 +518,7 @@ def run_stage(
         print(f"[stage {stage_id}] model saved to {model_path}")
         if config.track:
             upload_model_artifact(model_path, stage_id, stage.name, global_step, is_final=True)
+            subprocess.run(["uv", "run", "wandb", "artifact", "cache", "cleanup", "1GB"], check=False)
 
     if is_main and config.track and config.capture_video:
         utils.log_new_videos(video_dir, videos_seen, videos_sizes, global_step)
@@ -431,6 +532,13 @@ if __name__ == "__main__":
     explicit_args = get_explicit_args(Args, args)
     config = load_config(args.config)
     config = override_with_args(explicit_args, config)
+    # rollout length: a stage's own `steps` wins, an explicit --num-steps beats both
+    config.apply_num_steps(force="num_steps" in explicit_args)
+
+    # default envs_per_cpu: 2 on GPU (cheap CPU-side env stepping vs. one shared GPU
+    # for the forward/backward pass), 1 on CPU-only; an explicit --envs-per-cpu wins
+    if "envs_per_cpu" not in explicit_args:
+        config.envs_per_cpu = 2 if (config.cuda and torch.cuda.is_available()) else 1
 
     # --rewards <template>: overwrite every stage's reward weights with the named
     # reward_templates entry (e.g. run 2vs2ou with the `coop` weights)
@@ -450,6 +558,42 @@ if __name__ == "__main__":
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     is_distributed = world_size > 1
     is_main = local_rank == 0
+
+    # scale the env count to the machine unless it was given explicitly. Rounded down to
+    # a multiple of world_size to keep the num_envs % world_size assert below satisfied.
+    def envs_from_cpus(envs_per_cpu: int) -> int:
+        cpus = utils.available_cpus()
+        return max(world_size, (cpus * envs_per_cpu) // world_size * world_size)
+
+    num_envs_explicit = config.num_envs > 0
+    if not num_envs_explicit:
+        config.num_envs = envs_from_cpus(config.envs_per_cpu)
+        print(f"cpus available: {utils.available_cpus()} | num_envs: {config.num_envs} "
+              f"(auto: envs_per_cpu {config.envs_per_cpu})")
+    else:
+        print(f"cpus available: {utils.available_cpus()} | num_envs: {config.num_envs} (explicit)")
+
+    default_num_envs = config.num_envs
+
+    def stage_env_count(s) -> int:
+        """Per-stage env count: an explicit --num-envs wins, then the stage's own
+        num_envs / envs_per_cpu, else the global default."""
+        if num_envs_explicit:
+            return config.num_envs
+        if s.num_envs is not None:
+            return s.num_envs
+        if s.envs_per_cpu is not None:
+            return envs_from_cpus(s.envs_per_cpu)
+        return default_num_envs
+
+    # preview of the per-stage batch shapes the loop below recomputes, so a bad
+    # num_envs / steps / num_minibatches combination is visible before training starts
+    for s in config.stages:
+        s_mb = s.num_minibatches if s.num_minibatches is not None else config.num_minibatches
+        s_envs = stage_env_count(s)
+        s_batch = s_envs * s.steps
+        print(f"  stage '{s.name}': num_envs={s_envs} steps={s.steps} batch_size={s_batch} "
+              f"num_minibatches={s_mb} minibatch_size={s_batch // s_mb}")
 
     # NOTE: batch_size / minibatch_size / num_minibatches are computed per-stage,
     # inside the stage loop below, since each stage may have its own `steps` and
@@ -522,6 +666,10 @@ if __name__ == "__main__":
         stage = config.stages[stage_id]
         env_args = stage.environment.model_dump()
 
+        # a stage may run fewer/more envs than the rest (e.g. agent opponents cost
+        # extra memory per worker); run_stage reads config.num_envs for global_step
+        config.num_envs = stage_env_count(stage)
+
         # calculate iterations from total_steps per stage
         # total_steps = iterations * num_envs * stage.steps
         iterations = stage.total_steps // (config.num_envs * stage.steps)
@@ -545,17 +693,36 @@ if __name__ == "__main__":
         local_minibatch_size = local_batch_size // stage_num_minibatches
         config.batch_size = int(config.num_envs * stage.steps)
         config.minibatch_size = int(config.batch_size // stage_num_minibatches)
+        config.num_iterations = iterations
+
+        if is_main and config.track:
+            wandb.config.update(
+                {
+                    f"stage{stage_id}_{stage.name}/num_envs": config.num_envs,
+                    f"stage{stage_id}_{stage.name}/batch_size": config.batch_size,
+                    f"stage{stage_id}_{stage.name}/minibatch_size": config.minibatch_size,
+                    f"stage{stage_id}_{stage.name}/num_iterations": config.num_iterations,
+                },
+                allow_val_change=True,
+            )
 
         utils.set_seed(config.seed, config.torch_deterministic)
 
+        video_folder = f"videos/{run_name}/stage{stage_id}_{stage.name}"
         envs = gym.vector.AsyncVectorEnv(
             [
-                make_env(config.env_id, i, config.capture_video and is_main, run_name, config.gamma,
+                make_env(config.env_id, i, config.capture_video and is_main, video_folder, config.gamma,
                           flatten=config.agent_type == "mlp", environment_args=env_args)
                 for i in range(local_num_envs)
-
             ],
-            context="spawn" # spawn new process each time otherwise deadlock at 2nd stage
+            context="spawn", # spawn new process each time otherwise deadlock at 2nd stage
+            # gymnasium's NEXT_STEP default spends a whole extra step resetting,
+            # which lands in the rollout as a fake transition (terminal obs, ignored
+            # action, reward 0) that GAE then trains on. SAME_STEP resets in place
+            # and hands back the real final obs via infos["final_obs"], restoring the
+            # `dones[t] marks a reset obs` semantics this loop's GAE assumes.
+            observation_mode='different',
+            autoreset_mode=AutoresetMode.SAME_STEP,
         )
         assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
@@ -569,6 +736,10 @@ if __name__ == "__main__":
             else:
                 device, _ = utils.get_device(config.cuda)
 
+            # undo the OMP_NUM_THREADS=1 pin for the trainer only (workers keep it).
+            # Matters most CPU-only, where the update phase should use every core.
+            torch.set_num_threads(utils.available_cpus())
+
             agent = Agent(
                 envs, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
                 n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
@@ -577,8 +748,7 @@ if __name__ == "__main__":
 
             if config.load_model:
                 print(f"loading model weights from: {config.load_model}")
-                agent.load_state_dict(torch.load(config.load_model,
-                                                 map_location=device))
+                agent.load_state_dict(torch.load(config.load_model, map_location=device))
 
             no_decay = {"actor_logstd", "critic.pool_query"}
             decay_params = [p for n, p in agent.named_parameters() if p.ndim >= 2 and n not in no_decay]
@@ -597,13 +767,25 @@ if __name__ == "__main__":
 
         # defining opponent agent
         if agent_opponent is None and stage.environment.opponent_strategy == "Agent" and stage.environment.opponent_model:
+            # stays on CPU: it is pickled to every worker and only ever run there
+            # (AgentOpponentPolicy.act). On device it would pickle CUDA tensors and give
+            # each of the num_envs workers its own CUDA context.
             agent_opponent = Agent(
                 envs, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
                 n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
                 dropout=config.dropout, critic_pooling=config.critic_pooling,
-            ).to(device)
-            agent_opponent.load_state_dict(torch.load(stage.environment.opponent_model, map_location=device))
-            envs.call("set_opponent_agent", agent_opponent) 
+            )
+            agent_opponent.load_state_dict(
+                torch.load(stage.environment.opponent_model, map_location="cpu", weights_only=True)
+            )
+            agent_opponent.eval()
+            agent_opponent.requires_grad_(False)
+            # serialize to bytes before crossing the worker pipes: pickling a live
+            # nn.Module makes torch hand over every parameter storage as its own fd
+            # (file_descriptor sharing), which blows past the fd limit at high num_envs.
+            buf = io.BytesIO()
+            torch.save(agent_opponent, buf)
+            envs.call("set_opponent_agent", buf.getvalue())
             
 
         
@@ -620,6 +802,7 @@ if __name__ == "__main__":
         )
 
         envs.close()
+        time.sleep(3)
 
     if writer is not None:
         writer.close()

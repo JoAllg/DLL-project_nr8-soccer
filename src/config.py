@@ -4,8 +4,11 @@ import re
 from typing import Annotated, Optional, Literal
 from dataclasses import asdict, is_dataclass
 import os
+from pathlib import Path
 
 FieldFloat = Annotated[float, Field(ge=-1, le=1)]
+
+CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 
 class Area(BaseModel):
     min: tuple[FieldFloat, FieldFloat] = (-1.0 ,-1.0)
@@ -51,11 +54,17 @@ class Stage(BaseModel):
 
     # optional fields — can be omitted
     # ---------------------------------
-    steps: int = Field(default=4096, multiple_of=1024)
+    # rollout length; when omitted here it is filled from Config.num_steps
+    steps: int = Field(default=2 * 1024, multiple_of=1024)
     n_robots_yellow: Optional[int] = None
     save_model: bool = True
-    
+
     num_minibatches: Optional[int] = None
+
+    # per-stage env-count overrides; fall back to Config.num_envs / Config.envs_per_cpu.
+    # An explicit --num-envs on the CLI still wins over both.
+    num_envs: Optional[int] = None
+    envs_per_cpu: Optional[int] = None
 
     # reject any field not defined above
     model_config = ConfigDict(extra="forbid")
@@ -109,13 +118,15 @@ class Config(BaseModel):
     # the id of the environment"""
     total_timesteps: int = 20000000
     # total timesteps of the experiments"""
-    num_envs: int = 16
-    # the number of parallel game environments"""
-    num_steps: int = 2048*2
-    # the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 32
+    num_envs: int = 0
+    # the number of parallel game environments (0 -> envs_per_cpu * available CPUs)"""
+    envs_per_cpu: int = 1
+    # multiplier used to derive num_envs from the available CPU count when num_envs is unset"""
+    num_steps: int = 2 * 1024
+    # the number of steps to run in each environment per policy rollout (see apply_num_steps)"""
+    num_minibatches: int = 16 # TODO: double when running on CPU cluster
     # the number of mini-batches"""
-    update_epochs: int = 3
+    update_epochs: int = 4
     # the K epochs to update the policy"""
     learning_rate: float = 3e-4
     # the learning rate of the optimizer"""
@@ -123,7 +134,7 @@ class Config(BaseModel):
     # Toggle the cosine-with-warmup learning rate schedule for policy and value networks"""
     warmup_ratio: float = 0.01
     # fraction of total optimizer steps used for linear LR warmup at the start of each cycle (total warmup = num_cycles * this)"""
-    min_lr_ratio: float = 0.001
+    min_lr_ratio: float = 3e-8
     # the LR floor, as a fraction of learning_rate, that the cosine schedule decays to"""
     num_cycles: int = 1
     # number of warmup+cosine-decay LR cycles across training (1 = single cycle, no restarts)"""
@@ -137,7 +148,7 @@ class Config(BaseModel):
     # the lambda for the general advantage estimation"""
     norm_adv: bool = True
     # Toggles advantages normalization"""
-    clip_coef: float = 0.15
+    clip_coef: float = 0.1
     # the surrogate clipping coefficient"""
     clip_vloss: bool = True
     # Toggles whether or not to use a clipped loss for the value function, as per the paper."""
@@ -146,13 +157,13 @@ class Config(BaseModel):
     # entropy-coefficient annealing, after cleanrl ppo_trxl.py (init/final_ent_coef):
     final_ent_coef: float = 0.0
     # final entropy coefficient after linear annealing from ent_coef over total_timesteps"""
-    vf_coef: float = 0.5
+    vf_coef: float = 0.25
     # coefficient of the value function"""
     max_grad_norm: float = 0.25
     # the maximum norm for the gradient clipping"""
-    target_kl: Optional[float] = None
+    target_kl: Optional[float] = 0.05
     # the target KL divergence threshold"""
-    rpo_alpha: float = 0.5 # Best values between 0.5 to 0.1
+    rpo_alpha: float = 0.2 # Best values between 0.5 to 0.1
     # the alpha parameter for RPO"""
 
     # Agent architecture arguments
@@ -197,7 +208,16 @@ class Config(BaseModel):
     def model_post_init(self, __context) -> None:
         self._name_to_index = {stage.name: i for i, stage in enumerate(self.stages)}
 
-        #TODO: override stage steps and stage.iterations
+    def apply_num_steps(self, force: bool = False) -> None:
+        """Push `num_steps` into the stages' rollout length.
+
+        A stage that sets `steps` in the yaml keeps it; `force` (an explicit
+        --num-steps on the CLI) overrides every stage. Call after the CLI args
+        have been merged into the config.
+        """
+        for stage in self.stages:
+            if force or "steps" not in stage.model_fields_set:
+                stage.steps = self.num_steps
 
     def get_stages_from_name(self, names: Optional[list[str]]) -> list[int]:
         if not names:
@@ -252,7 +272,7 @@ def override_with_args(args, config: Config) -> Config:
 
 
 def load_config(path: str) -> Config:
-    with open(path) as f:
+    with open(CONFIGS_DIR / path) as f:
         raw = yaml.safe_load(f)
     return Config(**raw)
 

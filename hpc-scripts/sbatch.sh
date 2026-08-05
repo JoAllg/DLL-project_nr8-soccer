@@ -146,7 +146,7 @@ fi
 
 if [ "$IS_CPU" = "true" ]; then
     CPUS=1
-    read -p "CPUs [$CPUS]: " INPUT_CPUS
+    read -p "CPUs (cores on one node, all usable by one process) [$CPUS]: " INPUT_CPUS
     CPUS=${INPUT_CPUS:-$CPUS}
 else
     GPUS=1
@@ -183,7 +183,9 @@ export BRANCH=${INPUT_BRANCH:-${BRANCH:-main}}
 
 # Build the #SBATCH resource directives for the template
 if [ "$IS_CPU" = "true" ]; then
-    RESOURCE_DIRECTIVES="#SBATCH --ntasks=$CPUS"
+    # one node, one task, N cores — see the salloc.sh note: --ntasks=$CPUS would
+    # scatter one-CPU tasks across nodes and the trainer can only use its own node
+    RESOURCE_DIRECTIVES="#SBATCH --nodes=1"$'\n'"#SBATCH --ntasks=1"$'\n'"#SBATCH --cpus-per-task=$CPUS"
     [ -n "$MEM_FLAG" ] && RESOURCE_DIRECTIVES="$RESOURCE_DIRECTIVES"$'\n'"#SBATCH $MEM_FLAG"
 else
     RESOURCE_DIRECTIVES="#SBATCH --gres=gpu:$GPUS"

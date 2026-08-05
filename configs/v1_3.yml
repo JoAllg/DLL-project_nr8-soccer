@@ -1,0 +1,182 @@
+defaults: &defaults
+  total_steps: 16000000
+
+position_templates:
+  # Ball
+  ball_right_before_goal: &ball_right_before_goal
+    min: [0.6, -0.6]
+    max: [0.9, 0.6]
+
+  ball_middle: &ball_middle
+    min: [-0.2, -0.6]
+    max: [0.2, 0.6]
+
+  ball_left_before_goal: &ball_left_before_goal
+    min: [-0.9, -0.6]
+    max: [-0.6, 0.6]
+
+  # Robots
+  blue_half: &blue_half
+    min: [-0.8, -0.8]
+    max: [-0.1, 0.8]
+
+  blue_opponents_half: &blue_opponents_half
+    min: [0, -0.8]
+    max: [0.8, 0.8]
+
+  right_third: &right_third
+    min: [0.4, -0.6]
+    max: [0.8, 0.6]
+
+  yellow_half: &yellow_half
+    min: [0.1, -0.8]
+    max: [0.8, 0.8]
+
+  yellow_before_goal: &yellow_before_goal
+    min: [0.4, -0.4]
+    max: [0.9, 0.4]
+
+## Available rewards (reference for templates below)
+# proximity (ps*): distance to ball (closer = higher reward)
+# progress (ps*): ball progress towards goal
+# kick_forward (ps*): robot kicks ball with a forward (+x) component
+# kick (ps*): robot kicks ball in any direction (use for passing)
+# dribble (ps*): teammate keeps ball at dribbler (use small weight)
+# goal: goal scored
+# goal_close: goal scored if shot from the last third of the playing field
+# time (ps*): flat per-step penalty, makes ending the episode sooner worth more
+
+## Teamwork
+# spread (ps*): reward for robots maintaining spatial separation [MUSKAN]
+# receiver_positioning (ps*): reward for non-closest robot holding good receiving spot [MUSKAN]
+# off_ball_positioning (ps*): penalty for non-closest robot crowding the ball [MUSKAN]
+# spacing (ps*): crowding penalty when blue robots clump close
+
+# pass (ps*): pulse when a passed ball reaches a different teammate (small weight)
+# pass_forward (ps*): like pass but scaled by how much the pass advances toward goal [MUSKAN]
+# pass_to_shot (ps*): bonus when a shot follows a pass within 15 steps [MUSKAN]
+# kick_without_receiver (ps*): penalty for kicking with no teammate positioned to receive [MUSKAN]
+
+# (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode (dense or event-triggered), so keep the weight small
+
+## Discontinued
+# kick_velocity (ps*): ball kick-velocity (forward direction) reward
+# out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
+
+reward_templates:
+  coop: &coop_rw
+    goal: 50
+    goal_close: 50
+    progress: 0.8
+    proximity: 0.3
+    kick: 0.4
+    pass: 0.3
+    dribble: 0.01
+    off_ball_positioning: 0.04
+    time: 0.0005  # -1/episode at max_steps=1000
+
+  # Passing-dominant stage: pass pulse outweighs a full progress run
+  # (progress telescopes to ~7-9/episode), scoring still worth chaining passes.
+  passing: &passing_rw
+    goal: 20  # match coop
+    goal_close: 30  # match coop
+    progress: 0.4  # halved (coop 0.8): dribbling upfield must not beat passing
+    proximity: 0.15  # halved (coop 0.3): less ball-chasing, more open receivers
+    kick_forward: 0.5  # cut (coop 0.4): sideways/back passes should not be punished
+    kick: 5  # any-direction kick, seeds pass attempts
+    pass: 20.0  # boosted 16x (coop 0.3): ~2 passes == one progress run
+    dribble: 0.5  # raised (coop 0.01): hold ball to aim
+    off_ball_positioning: 0.1  # raised (coop 0.02): receiver must leave the ball area
+    time: 0.001  # match coop
+
+
+stages:
+  - name: "2vs0yellow-half"
+    <<: *defaults
+    total_steps: 10000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_right_before_goal
+      allowed_positions_blue:
+        <<: *right_third
+      rewards:
+        <<: *coop_rw
+
+  - name: "2vs0game"
+    <<: *defaults
+    total_steps: 10000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      # Startpositions similar to a normal game
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *coop_rw
+
+  - name: "2vs0game_passing"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      # Startpositions similar to a normal game
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *passing_rw
+
+  - name: "2vs2game"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Random"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *coop_rw
+
+  - name: "2vs2game_ou"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Uhlstein"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *coop_rw
+
+  - name: "2vs2block"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 2
+      opponent_strategy: "Block"
+      allowed_positions_ball:
+        <<: *ball_middle
+      allowed_positions_blue:
+        <<: *blue_half
+      allowed_positions_yellow:
+        <<: *yellow_half
+      rewards:
+        <<: *coop_rw
+

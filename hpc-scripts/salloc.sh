@@ -164,7 +164,7 @@ fi
 
 if [ "$IS_CPU" = "true" ]; then
     CPUS=1
-    read -p "CPUs [$CPUS]: " INPUT_CPUS
+    read -p "CPUs (cores on one node, all usable by one process) [$CPUS]: " INPUT_CPUS
     CPUS=${INPUT_CPUS:-$CPUS}
 else
     GPUS=1
@@ -199,8 +199,12 @@ fi
 
 echo ""
 if [ "$IS_CPU" = "true" ]; then
-    echo "### Requesting: $PARTITION, ${CPUS} CPU(s), $TIME, job=$JOBNAME"
-    SALLOC_CMD="salloc -p \"$PARTITION\" --ntasks=\"$CPUS\" $MEM_FLAG --time=\"$TIME\" --job-name=\"$JOBNAME\" $MAIL_FLAGS --chdir=\"$REPO_DIR\""
+    echo "### Requesting: $PARTITION, ${CPUS} CPU(s) on 1 node, $TIME, job=$JOBNAME"
+    # --nodes=1 --ntasks=1 --cpus-per-task=N, not --ntasks=N: the trainer is a single
+    # process that forks its env workers via shared-memory multiprocessing, so every
+    # CPU must sit on the same node. --ntasks=N scatters N one-CPU tasks across nodes
+    # and the trainer can only ever use its own node's share.
+    SALLOC_CMD="salloc -p \"$PARTITION\" --nodes=1 --ntasks=1 --cpus-per-task=\"$CPUS\" $MEM_FLAG --time=\"$TIME\" --job-name=\"$JOBNAME\" $MAIL_FLAGS --chdir=\"$REPO_DIR\""
 else
     echo "### Requesting: $PARTITION, ${GPUS} GPU(s), $TIME, job=$JOBNAME"
     SALLOC_CMD="salloc -p \"$PARTITION\" --gres=gpu:\"$GPUS\" --time=\"$TIME\" --job-name=\"$JOBNAME\" $MAIL_FLAGS --chdir=\"$REPO_DIR\""

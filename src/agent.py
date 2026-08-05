@@ -10,6 +10,11 @@ N_MAX = 11.0
 
 
 class Agent(nn.Module):
+    # sigma bounds: above 1.0 every sample clips to an extreme of the [-1, 1]
+    # action space (bang-bang), below exp(-5) the policy is deterministic
+    LOGSTD_MIN = -5.0
+    LOGSTD_MAX = 0.0
+
     def __init__(
         self,
         envs,
@@ -47,7 +52,8 @@ class Agent(nn.Module):
         # diagonal Gaussian, learned global (state-independent) logstd;
         # transformer: one per per-robot action dim, shared across robots (team-size independent)
         logstd_dim = act_dim_per_robot if agent_type == "transformer" else act_dim_total
-        self.actor_logstd = nn.Parameter(torch.zeros(1, logstd_dim))
+        # below LOGSTD_MAX: init at the cap of 1 (torch.zeros()) left no headroom before freezing (see clamp_ below)
+        self.actor_logstd = nn.Parameter(torch.full((1, logstd_dim), -0.5))
 
     def _derive_layout(self, envs):
         """Read a TokenLayout + per-robot action width off `envs`, consistency-checked.
@@ -75,6 +81,18 @@ class Agent(nn.Module):
         scale = np.where(np.isfinite(high) & (high > 0), high, 1.0)
         device = self.obs_scale.device if hasattr(self, "obs_scale") else "cpu"
         self.register_buffer("obs_scale", torch.from_numpy(scale).to(device), persistent=False)
+
+    def load_state_dict(self, state_dict, *args, **kwargs):
+        """Load, then pull actor_logstd inside its bounds.
+
+        Older checkpoints saved a runaway logstd. `clamp` has no gradient outside
+        its range, so such a value would stay pinned at the cap forever; clamping
+        the parameter puts it on the boundary where gradient flows again.
+        """
+        result = super().load_state_dict(state_dict, *args, **kwargs)
+        with torch.no_grad():
+            self.actor_logstd.clamp_(self.LOGSTD_MIN, self.LOGSTD_MAX)
+        return result
 
     def set_env(self, envs):
         """Repoint an already-built transformer agent at a differently-sized env.
@@ -127,7 +145,7 @@ class Agent(nn.Module):
             return self.critic(*self._tokenize(x))
         return self.critic(x)
 
-    def get_action_and_value(self, x, action=None):
+    def get_action_and_value(self, x, action=None, deterministic=False):
         if self.agent_type == "transformer":
             tokens = self._tokenize(x)
             # (B, n_teammates, act_dim_per_robot) -> flat (B, act_dim_total) for the Gaussian
@@ -139,10 +157,16 @@ class Agent(nn.Module):
             action_mean = self.actor_mean(x)
             value = self.critic(x)
             action_logstd = self.actor_logstd.expand_as(action_mean)
-        action_std = torch.exp(action_logstd)
+        # ClipAction clips in the env but PPO scores the unclipped action, so an
+        # unbounded head drifts past +-1 and then logstd runs away too (wider noise
+        # costs nothing once every sample clips). Bound both so intermediate
+        # commands - partial kick strength above all - stay reachable.
+        action_mean = torch.tanh(action_mean)
+        action_std = torch.exp(action_logstd.clamp(self.LOGSTD_MIN, self.LOGSTD_MAX))
         probs = Normal(action_mean, action_std)
         if action is None:
-            action = probs.sample()
+            # deterministic: greedy mean action, for evaluation only (see simulate.py)
+            action = action_mean if deterministic else probs.sample()
         else:  # RPO: perturb the stored action's mean before re-evaluating
             action = action.reshape(x.shape[0], -1)
             z = torch.FloatTensor(action_mean.shape).uniform_(-self.rpo_alpha, self.rpo_alpha).to(x.device)
