@@ -33,7 +33,8 @@ class UhlsteinOpponentPolicy:
         if self.ou_actions is None:
             action_space = Box(low=-1, high=1, shape=(5,))
             self.ou_actions = [
-                OrnsteinUhlenbeckAction(action_space, dt=env.time_step) for _ in range(env.n_robots_yellow)
+                OrnsteinUhlenbeckAction(action_space, dt=env.time_step)
+                for _ in range(env.n_robots_yellow)
             ]
         actions = np.stack([ou.sample() for ou in self.ou_actions]).clip(-1, 1)
         # never kick or dribble
@@ -70,29 +71,42 @@ class BlockOpponentPolicy:
     ):
         self.num_blockers = num_blockers  # how many yellows to use blocking strategy
         self.block_frac = block_frac  # standoff: fraction from threat toward goal
-        self.approach_dist = approach_dist  # P-controller: distance at which speed saturates
-        self.speed_scale = speed_scale  # cap top speed (<1 = slower, gives blue time to act)
+        self.approach_dist = (
+            approach_dist  # P-controller: distance at which speed saturates
+        )
+        self.speed_scale = (
+            speed_scale  # cap top speed (<1 = slower, gives blue time to act)
+        )
         self.ou_actions: Optional[list[OrnsteinUhlenbeckAction]] = None
 
     def act(self, env) -> np.ndarray:
         if self.ou_actions is None:
             action_space = Box(low=-1, high=1, shape=(5,))
             self.ou_actions = [
-                OrnsteinUhlenbeckAction(action_space, dt=env.time_step) for _ in range(env.n_robots_yellow)
+                OrnsteinUhlenbeckAction(action_space, dt=env.time_step)
+                for _ in range(env.n_robots_yellow)
             ]
 
         goal_center = np.array([env.field.length / 2, 0.0])
         ball = np.array([env.frame.ball.x, env.frame.ball.y])
         yellow = np.array(
-            [[env.frame.robots_yellow[i].x, env.frame.robots_yellow[i].y] for i in range(env.n_robots_yellow)]
+            [
+                [env.frame.robots_yellow[i].x, env.frame.robots_yellow[i].y]
+                for i in range(env.n_robots_yellow)
+            ]
         )
         blue = np.array(
-            [[env.frame.robots_blue[i].x, env.frame.robots_blue[i].y] for i in range(env.n_robots_blue)]
+            [
+                [env.frame.robots_blue[i].x, env.frame.robots_blue[i].y]
+                for i in range(env.n_robots_blue)
+            ]
         )
 
         defender = int(np.argmin(np.linalg.norm(yellow - ball, axis=1)))
         # blues ranked most-dangerous first (closest to goal in x)
-        blues_by_danger = sorted(range(len(blue)), key=lambda b: goal_center[0] - blue[b, 0])
+        blues_by_danger = sorted(
+            range(len(blue)), key=lambda b: goal_center[0] - blue[b, 0]
+        )
 
         actions = np.zeros((env.n_robots_yellow, 5), dtype=np.float32)
         marker_k = 0
@@ -109,7 +123,10 @@ class BlockOpponentPolicy:
                 actions[i] = self.ou_actions[i].sample()
                 continue
             target = threat + self.block_frac * (goal_center - threat)
-            actions[i, 0:2] = np.clip((target - yellow[i]) / self.approach_dist, -1.0, 1.0) * self.speed_scale
+            actions[i, 0:2] = (
+                np.clip((target - yellow[i]) / self.approach_dist, -1.0, 1.0)
+                * self.speed_scale
+            )
         return actions
 
     def reset(self):
@@ -124,14 +141,18 @@ class AgentOpponentPolicy:
         self.mirror = mirror
 
     def act(self, env) -> np.ndarray:
-        obs = env._build_obs_for(env.frame.robots_yellow, env.frame.robots_blue, mirror=True)
+        obs = env._build_obs_for(
+            env.frame.robots_yellow, env.frame.robots_blue, mirror=True
+        )
         if self.agent is None:
             raise RuntimeError(
                 "AgentOpponentPolicy.act() called before an agent was set "
                 "-- call env.set_opponent_agent(agent) after constructing it."
             )
 
-        obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)  # (obs_dim,) -> (1, obs_dim)
+        obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(
+            0
+        )  # (obs_dim,) -> (1, obs_dim)
         with torch.no_grad():
             action, *_ = self.agent.get_action_and_value(obs_t)  # (1, action_dim)
             action = action.squeeze(1).cpu().numpy().reshape(env.n_robots_yellow, 5)

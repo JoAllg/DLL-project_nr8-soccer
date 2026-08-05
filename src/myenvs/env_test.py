@@ -3,11 +3,11 @@ import sys
 
 import gymnasium as gym
 
-#add src/ to path so `import myenvs` resolves the package
+# add src/ to path so `import myenvs` resolves the package
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import myenvs  # noqa: E402
+import myenvs
 
-env = gym.make('SSLDynamicRobots-v0', render_mode="human")
+env = gym.make("SSLDynamicRobots-v0", render_mode="human")
 env.reset()
 
 # Run simulation (you can add your agent logic here)

@@ -10,8 +10,9 @@ FieldFloat = Annotated[float, Field(ge=-1, le=1)]
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 
+
 class Area(BaseModel):
-    min: tuple[FieldFloat, FieldFloat] = (-1.0 ,-1.0)
+    min: tuple[FieldFloat, FieldFloat] = (-1.0, -1.0)
     max: tuple[FieldFloat, FieldFloat] = (1.0, 1.0)
 
     @field_validator("max")
@@ -22,6 +23,7 @@ class Area(BaseModel):
             raise ValueError("max must be greater than min in both dimensions")
         return v
 
+
 class Environment(BaseModel):
     # optional fields — can be omitted
     # ---------------------------------
@@ -30,7 +32,7 @@ class Environment(BaseModel):
 
     # string resolved to to <Name>OpponentPolicy options <agent> <random>
     opponent_strategy: Optional[str] = None
-    opponent_model: Optional[str] = None # if strategy =="Agent" this model is loaded
+    opponent_model: Optional[str] = None  # if strategy =="Agent" this model is loaded
 
     allowed_positions_blue: Area = Area()
     allowed_positions_yellow: Area = Area()
@@ -44,13 +46,13 @@ class Environment(BaseModel):
     # reject any field not defined above
     model_config = ConfigDict(extra="forbid")
 
+
 class Stage(BaseModel):
     # required fields — must be present
     # ---------------------------------
     name: str
     environment: Environment = Environment()
     total_steps: int
-
 
     # optional fields — can be omitted
     # ---------------------------------
@@ -78,6 +80,7 @@ class Stage(BaseModel):
                 f"names (only letters, digits, '-', '_', '.' are permitted). "
             )
         return v
+
 
 class Config(BaseModel):
     # required fields — must be present
@@ -124,7 +127,7 @@ class Config(BaseModel):
     # multiplier used to derive num_envs from the available CPU count when num_envs is unset"""
     num_steps: int = 2 * 1024
     # the number of steps to run in each environment per policy rollout (see apply_num_steps)"""
-    num_minibatches: int = 16 # TODO: double when running on CPU cluster
+    num_minibatches: int = 16  # TODO: double when running on CPU cluster
     # the number of mini-batches"""
     update_epochs: int = 4
     # the K epochs to update the policy"""
@@ -163,7 +166,7 @@ class Config(BaseModel):
     # the maximum norm for the gradient clipping"""
     target_kl: Optional[float] = 0.05
     # the target KL divergence threshold"""
-    rpo_alpha: float = 0.2 # Best values between 0.5 to 0.1
+    rpo_alpha: float = 0.2  # Best values between 0.5 to 0.1
     # the alpha parameter for RPO"""
 
     # Agent architecture arguments
@@ -177,7 +180,7 @@ class Config(BaseModel):
     # (transformer) the number of attention heads (must divide d_model)"""
     ff_dim: int = 512
     # (transformer) the feedforward dimension inside encoder layers"""
-    dropout: float = 0.0 # Should not be used (RPO/PPO regularize with action-mean perturbation and sampling noise)
+    dropout: float = 0.0  # Should not be used (RPO/PPO regularize with action-mean perturbation and sampling noise)
     # (transformer) dropout inside encoder layers"""
     critic_pooling: Literal["mean", "max", "attention"] = "attention"
     # (transformer) how the critic pools entity tokens into a scalar value"""
@@ -227,6 +230,7 @@ class Config(BaseModel):
             raise ValueError(f" stage names not found in config: {missing}")
         return [self._name_to_index[name] for name in names]
 
+
 def flatten_dict(d, parent_key="", sep="-"):
     """Recursively flatten nested dicts/lists into dotted-key : value pairs."""
     items = {}
@@ -243,7 +247,6 @@ def flatten_dict(d, parent_key="", sep="-"):
     return items
 
 
-
 def override_with_args(args, config: Config) -> Config:
     """
     Override fields in a pydantic `config` with values from `args`
@@ -255,20 +258,19 @@ def override_with_args(args, config: Config) -> Config:
         args_dict = asdict(args)
     elif isinstance(args, dict):
         args_dict = args
-    elif hasattr(args, "__dict__"):  # e.g. argparse.Namespace
+    elif hasattr(args, "__dict__"):
         args_dict = vars(args)
     else:
         raise TypeError(f"Unsupported args type: {type(args)}")
 
-    valid_fields = config.model_fields.keys()  # pydantic v2; use config.__fields__ for v1
+    valid_fields = config.model_fields.keys()
     updates = {k: v for k, v in args_dict.items() if k in valid_fields}
 
     unknown = set(args_dict.keys()) - valid_fields
     if unknown:
         print(f"Warning: ignoring args not in config: {unknown}")
 
-    return config.model_copy(update=updates)  # pydantic v2
-    # For pydantic v1: return config.copy(update=updates)
+    return config.model_copy(update=updates)
 
 
 def load_config(path: str) -> Config:
@@ -283,5 +285,3 @@ if __name__ == "__main__":
 
     for stage in config.stages:
         print(stage.steps)
-
-

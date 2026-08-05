@@ -12,19 +12,37 @@ import math
 
 
 def _get_cosine_schedule_with_warmup_lr_lambda(
-    current_step: int, *, num_warmup_steps: int, num_training_steps: int, num_cycles: int, cycle_decay: float, min_lr_ratio: float
+    current_step: int,
+    *,
+    num_warmup_steps: int,
+    num_training_steps: int,
+    num_cycles: int,
+    cycle_decay: float,
+    min_lr_ratio: float,
 ):
     cycle_length = max(1, num_training_steps // num_cycles)
-    cycle = min(current_step // cycle_length, num_cycles - 1)  # leftover steps from // stay in the last cycle
+    cycle = min(
+        current_step // cycle_length, num_cycles - 1
+    )  # leftover steps from // stay in the last cycle
     step_in_cycle = current_step - cycle * cycle_length
     peak_ratio = cycle_decay**cycle
-    floor_ratio = min(min_lr_ratio, peak_ratio)  # a decayed peak below the floor would invert the decay
+    floor_ratio = min(
+        min_lr_ratio, peak_ratio
+    )  # a decayed peak below the floor would invert the decay
 
     if step_in_cycle < num_warmup_steps:
-        warmup_start = floor_ratio if cycle > 0 else 0.0  # only the very first warmup ramps from 0
-        return warmup_start + (peak_ratio - warmup_start) * float(step_in_cycle) / float(max(1, num_warmup_steps))
+        warmup_start = (
+            floor_ratio if cycle > 0 else 0.0
+        )  # only the very first warmup ramps from 0
+        return warmup_start + (peak_ratio - warmup_start) * float(
+            step_in_cycle
+        ) / float(max(1, num_warmup_steps))
 
-    progress = min(1.0, float(step_in_cycle - num_warmup_steps) / float(max(1, cycle_length - num_warmup_steps)))
+    progress = min(
+        1.0,
+        float(step_in_cycle - num_warmup_steps)
+        / float(max(1, cycle_length - num_warmup_steps)),
+    )
     cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
 
     return floor_ratio + (peak_ratio - floor_ratio) * cosine

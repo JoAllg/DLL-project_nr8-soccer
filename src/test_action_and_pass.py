@@ -2,6 +2,7 @@
 
 Run from src/:  uv run python test_action_and_pass.py
 """
+
 import numpy as np
 import torch
 import gymnasium as gym
@@ -20,8 +21,11 @@ AREAS = dict(
 
 def make_env(n_blue=2, **rewards):
     return SSLDynamicRobots(
-        field_type=1, n_robots_blue=n_blue, n_robots_yellow=0,
-        rewards=rewards or {"pass": 1.0}, **AREAS,
+        field_type=1,
+        n_robots_blue=n_blue,
+        n_robots_yellow=0,
+        rewards=rewards or {"pass": 1.0},
+        **AREAS,
     )
 
 
@@ -31,7 +35,9 @@ def test_step_returns_metrics_and_splits_truncation():
     env.reset(seed=0)
     _, _, terminated, truncated, info = env.step(np.zeros((1, 5), dtype=np.float32))
     for key in ("episode_pass_count", "episode_goal_count", "episode_reward_breakdown"):
-        assert key in info, f"{key} missing from info -- ppo.py's logging guards need it"
+        assert key in info, (
+            f"{key} missing from info -- ppo.py's logging guards need it"
+        )
     assert not (terminated and truncated), "terminated and truncated must be exclusive"
 
     # drive to the time limit: it must come back as truncated, not terminated
@@ -120,7 +126,12 @@ def test_pass_forward_combines_catch_and_direction():
     env2.last_touch_pos = np.array([env2.frame.ball.x + 5.0, 0.0])
     assert env2._reward_pass_forward() == 0.0
     # uncatchable forward pass -> catch 0 kills it
-    assert _reception(make_env(pass_forward=1.0), ball_v_x=2.0 * cap)._reward_pass_forward() == 0.0
+    assert (
+        _reception(
+            make_env(pass_forward=1.0), ball_v_x=2.0 * cap
+        )._reward_pass_forward()
+        == 0.0
+    )
     env.close()
 
 
@@ -178,7 +189,9 @@ def test_warmstart_pulls_runaway_logstd_back_in_range():
     env = gym.vector.SyncVectorEnv([lambda: make_env(progress=0.8)])
     agent = Agent(env, rpo_alpha=0.2, agent_type="transformer")
     sd = {k: v.clone() for k, v in agent.state_dict().items()}
-    sd["actor_logstd"] = torch.full_like(sd["actor_logstd"], 2.065)  # v1_stage5_2vs0game
+    sd["actor_logstd"] = torch.full_like(
+        sd["actor_logstd"], 2.065
+    )  # v1_stage5_2vs0game
 
     agent.load_state_dict(sd)
     assert agent.actor_logstd.max().item() <= agent.LOGSTD_MAX, agent.actor_logstd
@@ -231,7 +244,9 @@ def test_action_mean_and_std_are_bounded():
         kicks.append(np.clip(a.numpy().reshape(-1, 5)[:, 3], -1, 1))
     kicks = np.concatenate(kicks)
     interior = float(np.mean((kicks > 0.05) & (kicks < 0.95)))
-    assert interior > 0.15, f"kick strength still effectively bang-bang: interior={interior:.3f}"
+    assert interior > 0.15, (
+        f"kick strength still effectively bang-bang: interior={interior:.3f}"
+    )
 
     # logprob/entropy must stay finite with the clamp in the graph
     _, logprob, entropy, _ = agent.get_action_and_value(torch.Tensor(obs))
@@ -244,16 +259,22 @@ if __name__ == "__main__":
     test_step_returns_metrics_and_splits_truncation()
     print("ok  step() injects metrics and splits truncated")
     cap = test_pass_reward_grades_by_arrival_speed()
-    print(f"ok  pass reward grades by arrival speed, 0 at max_catch_speed={cap:.3f} m/s")
+    print(
+        f"ok  pass reward grades by arrival speed, 0 at max_catch_speed={cap:.3f} m/s"
+    )
     test_pass_forward_combines_catch_and_direction()
     print("ok  pass_forward = catch * direction")
     test_reception_counted_once_when_both_rewards_configured()
     print("ok  reception counted once per step")
     a3, width, catch = test_catchable_pass_is_physically_reachable()
-    print(f"ok  catchable pass reachable at kick strength ~{a3:.2f} "
-          f"(receiver-distance window {width:.2f} m, best catch {catch:.2f})")
+    print(
+        f"ok  catchable pass reachable at kick strength ~{a3:.2f} "
+        f"(receiver-distance window {width:.2f} m, best catch {catch:.2f})"
+    )
     test_warmstart_pulls_runaway_logstd_back_in_range()
     print("ok  warm-started runaway logstd clamped and still trainable")
     interior = test_action_mean_and_std_are_bounded()
-    print(f"ok  action mean/std bounded, kick interior fraction {interior:.3f} (was 0.049)")
+    print(
+        f"ok  action mean/std bounded, kick interior fraction {interior:.3f} (was 0.049)"
+    )
     print("\nall checks passed")

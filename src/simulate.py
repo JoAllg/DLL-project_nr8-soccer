@@ -13,6 +13,7 @@ Usage:
     # video capture instead:
     python simulate.py --model-path ... --config v3.yml --capture-video --video-dir videos/eval
 """
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -67,7 +68,9 @@ class SimArgs:
 def build_env_fn(args, config, env_args):
     """Eval-time wrapper stack: like ppo.make_env minus NormalizeReward/TransformReward,
     so the reported return is the env's raw reward."""
-    render_mode = "human" if args.render else ("rgb_array" if args.capture_video else None)
+    render_mode = (
+        "human" if args.render else ("rgb_array" if args.capture_video else None)
+    )
 
     def thunk():
         env = gym.make(config.env_id, render_mode=render_mode, **env_args)
@@ -113,9 +116,15 @@ def wait_for_key():
 
 def build_agent(envs, config, path, device):
     agent = Agent(
-        envs, config.rpo_alpha, agent_type=config.agent_type, d_model=config.d_model,
-        n_layers=config.n_layers, n_heads=config.n_heads, ff_dim=config.ff_dim,
-        dropout=config.dropout, critic_pooling=config.critic_pooling,
+        envs,
+        config.rpo_alpha,
+        agent_type=config.agent_type,
+        d_model=config.d_model,
+        n_layers=config.n_layers,
+        n_heads=config.n_heads,
+        ff_dim=config.ff_dim,
+        dropout=config.dropout,
+        critic_pooling=config.critic_pooling,
     ).to(device)
     agent.load_state_dict(torch.load(path, map_location=device, weights_only=True))
     agent.eval()
@@ -128,8 +137,10 @@ def main():
     config = load_config(args.config)
 
     if args.render and args.capture_video:
-        raise ValueError("--render and --capture-video are mutually exclusive "
-                         "(render_mode='human' vs 'rgb_array' can't both drive the same env)")
+        raise ValueError(
+            "--render and --capture-video are mutually exclusive "
+            "(render_mode='human' vs 'rgb_array' can't both drive the same env)"
+        )
 
     if args.stage_name is not None:
         stage = next((s for s in config.stages if s.name == args.stage_name), None)
@@ -157,17 +168,26 @@ def main():
     if args.render:
         render_env = envs.envs[0].unwrapped
         open_window(render_env, args.fullscreen, caption="SSL Environment")
-        print("[render] ESC / close window: quit   SPACE: pause/resume   RIGHT: skip episode")
+        print(
+            "[render] ESC / close window: quit   SPACE: pause/resume   RIGHT: skip episode"
+        )
 
     # no model_path -> blue robots stay static (zero action); useful to inspect opponents alone
     agent = None
     if args.model_path is not None:
         agent = build_agent(envs, config, args.model_path, device)
 
-    if stage.environment.opponent_strategy == "Agent" and stage.environment.opponent_model:
+    if (
+        stage.environment.opponent_strategy == "Agent"
+        and stage.environment.opponent_model
+    ):
         # SyncVectorEnv passes the module directly — nothing crosses a process pipe
-        envs.call("set_opponent_agent",
-                  build_agent(envs, config, stage.environment.opponent_model, torch.device("cpu")))
+        envs.call(
+            "set_opponent_agent",
+            build_agent(
+                envs, config, stage.environment.opponent_model, torch.device("cpu")
+            ),
+        )
 
     zero_action = np.zeros_like(envs.action_space.sample())
 
@@ -215,7 +235,9 @@ def main():
         if skipped:
             # cut short by hand, so no final_info and no comparable stats:
             # leave it out of the summary and start a fresh episode
-            print(f"episode {ep + 1}/{args.episodes}: skipped (return so far {ep_return:.2f})")
+            print(
+                f"episode {ep + 1}/{args.episodes}: skipped (return so far {ep_return:.2f})"
+            )
             obs, _ = envs.reset()
             continue
 
@@ -225,15 +247,21 @@ def main():
         passes.append(float(ep_info.get("episode_pass_count", [0])[0]))
         length = int(ep_info["episode"]["l"][0]) if "episode" in ep_info else -1
         returns.append(ep_return)
-        print(f"episode {ep + 1}/{args.episodes}: return={ep_return:.2f} "
-              f"length={length} goals={goals[-1]:.0f} passes={passes[-1]:.0f}")
+        print(
+            f"episode {ep + 1}/{args.episodes}: return={ep_return:.2f} "
+            f"length={length} goals={goals[-1]:.0f} passes={passes[-1]:.0f}"
+        )
 
     if not returns:
         print("\nno episode completed")
     else:
-        print(f"\nmean return over {len(returns)} episodes: "
-              f"{np.mean(returns):.2f} ± {np.std(returns):.2f}")
-        print(f"goals/episode: {np.mean(goals):.2f}  passes/episode: {np.mean(passes):.2f}")
+        print(
+            f"\nmean return over {len(returns)} episodes: "
+            f"{np.mean(returns):.2f} ± {np.std(returns):.2f}"
+        )
+        print(
+            f"goals/episode: {np.mean(goals):.2f}  passes/episode: {np.mean(passes):.2f}"
+        )
 
     envs.close()
 
