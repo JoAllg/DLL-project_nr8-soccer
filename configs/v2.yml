@@ -47,16 +47,15 @@ position_templates:
 # time (ps*): flat per-step penalty, makes ending the episode sooner worth more
 
 ## Teamwork
-# spread (ps*): reward for robots maintaining spatial separation [MUSKAN]
-# receiver_positioning (ps*): reward for non-closest robot holding good receiving spot [MUSKAN]
-# off_ball_positioning (ps*): penalty for non-closest robot crowding the ball [MUSKAN]
+# spread (ps*): reward for robots maintaining spatial separation
+# receiver_positioning (ps*): reward for non-closest robot holding good receiving spot
+# off_ball_positioning (ps*): penalty for non-closest robot crowding the ball
 # spacing (ps*): crowding penalty when blue robots clump close
 
 # pass (ps*): pulse when a passed ball reaches a different teammate (small weight)
-# pass_forward (ps*): like pass but scaled by how much the pass advances toward goal [MUSKAN]
-# pass_to_shot (ps*): bonus when a shot follows a pass within 15 steps [MUSKAN]
-# kick_without_receiver (ps*): penalty for kicking with no teammate positioned to receive [MUSKAN]
-
+# pass_forward (ps*): like pass but scaled by how much the pass advances toward goal
+# pass_to_shot (ps*): bonus when a shot follows a pass within 15 steps
+# kick_without_receiver (ps*): penalty for kicking with no teammate positioned to receive
 # (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode (dense or event-triggered), so keep the weight small
 
 ## Discontinued
@@ -117,7 +116,7 @@ reward_templates:
   #   spacing: 0.1  # raised (coop 0.03): spread out to open pass lanes
   #   time: 0.001  # match coop
 
-  # Quality-passing: rewards forward passes, positioning, and assist->shot sequences [MUSKAN]
+  # Quality-passing: rewards forward passes, positioning, and assist->shot sequencess
   quality_passing: &quality_passing_rw
     goal: 20
     goal_close: 70

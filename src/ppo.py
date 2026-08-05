@@ -293,7 +293,7 @@ def run_stage(
         frac = min(global_step / config.total_timesteps, 1.0)
         ent_coef = config.ent_coef + (config.final_ent_coef - config.ent_coef) * frac
 
-        # [MUSKAN] Rollout accumulators for scale-invariant metrics
+        # Rollout accumulators for scale-invariant metrics
         rollout_passes = 0
         rollout_goals = 0
         rollout_episodes = 0
@@ -341,7 +341,7 @@ def run_stage(
                         writer.add_scalar("charts/episodic_return", r, global_step)
                         writer.add_scalar("charts/episodic_length", episode_infos["episode"]["l"][i], global_step)
 
-                    # [MUSKAN] Accumulate pass/goal counts per completed episode
+                    # Accumulate pass/goal counts per completed episode
                     rollout_episodes += 1
                     if "episode_pass_count" in episode_infos and episode_infos["episode_pass_count"] is not None:
                         pc = episode_infos["episode_pass_count"][i]
@@ -351,7 +351,7 @@ def run_stage(
                         if gc is not None:
                             rollout_goals += int(gc)
 
-                    # [MUSKAN] Per-reward-term breakdown
+                    # Per-reward-term breakdown
                     if "episode_reward_breakdown" in episode_infos:
                         for name, arr in episode_infos["episode_reward_breakdown"].items():
                             if not name.startswith("_"):
@@ -363,7 +363,7 @@ def run_stage(
                 last_save_step = global_step
 
         t_rollout_end = time.time()
-        # [MUSKAN] Log rollout-level metrics after each rollout — scale invariant
+        # Log rollout-level metrics after each rollout — scale invariant
         if writer is not None and rollout_episodes > 0:
             writer.add_scalar("charts/passes_per_episode", rollout_passes / rollout_episodes, global_step)
             writer.add_scalar("charts/goals_per_episode", rollout_goals / rollout_episodes, global_step)
