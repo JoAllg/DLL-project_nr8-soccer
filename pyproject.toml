@@ -21,6 +21,7 @@ dependencies = [
     "tyro>=0.5.10",
     "pyyaml>=6.0.3",
     "pydantic>=2.13.4",
+    "pyarrow>=25.0.0",
 ]
 
 [tool.uv.sources]
@@ -29,5 +30,6 @@ rsoccer-gym = { git = "https://github.com/robocin/rSoccer.git" }
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.9",
+    "matplotlib>=3.10.9",
     "ruff>=0.15.20",
 ]
