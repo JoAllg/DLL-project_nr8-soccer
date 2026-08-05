@@ -14,7 +14,7 @@ from agent import Agent
 from config import Area
 from .opponent import OPPONENT_POLICIES, AgentOpponentPolicy
 
-render_ball.Ball.radius = 0.04  # 7x bigger for visibility
+render_ball.Ball.radius = 0.04  # Increases visibility
 
 
 class SimFieldRenderField(SSLRenderField):
@@ -74,7 +74,7 @@ class SSLDynamicRobots(SSLBaseEnv):
     # must match the segments _frame_to_observations() lays out below.
     BALL_DIM = 4  # [x, y, vx, vy]
     TEAMMATE_DIM = 8  # [x, y, sin(θ), cos(θ), vx, vy, vθ, role_index]
-    OPPONENT_DIM = 8  # [x, y, vx, vy, vθ, role_index] (no heading observed for opponents)
+    OPPONENT_DIM = 8  # [x, y, sin(θ), cos(θ), vx, vy, vθ, role_index]
 
     DEFAULT_REWARD_WEIGHTS = {"proximity": 0.1, "progress": 0.8, "kick_forward": 0.1, "goal": 100.0}
 
@@ -156,9 +156,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         self.episode_reward_breakdown = {name: 0.0 for name in self.reward_weights}
         self.episode_pass_count = 0
         self.episode_goal_count = 0
-        # Scoring is only an objective when a goal reward is configured. Without one,
-        # ending the episode on a goal is a free escape from the shaping penalties,
-        # so the ball is put back into play instead in _calculate_reward_and_done.
+        # Score-ends-episode only with a goal reward; else respawn the ball instead.
         self.goal_ends_episode = bool({"goal", "goal_close"} & set(self.reward_weights))
 
     def set_opponent_agent(self, agent: "Agent | bytes"):
@@ -181,8 +179,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         at max_steps."""
         obs, reward, done, _, info = super().step(action)
         truncated = done and self.time_limit_reached
-        # Only add episode metrics when episode ends
-        # if terminated or truncated:
+        # Pass and goal count info added
         info["episode_pass_count"] = self.episode_pass_count
         info["episode_goal_count"] = self.episode_goal_count
         info["episode_reward_breakdown"] = dict(self.episode_reward_breakdown)
@@ -550,7 +547,7 @@ class SSLDynamicRobots(SSLBaseEnv):
 
         Returns (catch, direction_score), both 0.0 when no pass arrives this step.
 
-        `catch` grades how well the recieving robot is able to catch the ball (low ball speed required)
+        `catch` grades how well the receiving robot is able to catch the ball (low ball speed required)
         """
         if self.n_robots_blue < 2 or self.last_frame is None or self.last_touch_id is None:
             return 0.0, 0.0
@@ -564,7 +561,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         ball = np.array([self.frame.ball.x, self.frame.ball.y])
         last_ball = np.array([self.last_frame.ball.x, self.last_frame.ball.y])
 
-        # kick/pass must carry ball aways from passer for at least d_min
+        # kick/pass must carry ball away from passer for at least d_min
         if np.linalg.norm(ball - self.last_touch_pos) <= d_min:
             return 0.0, 0.0
 
@@ -623,13 +620,8 @@ class SSLDynamicRobots(SSLBaseEnv):
         return 0.0
 
     def _reward_time(self):
-        """Constant -1.0 per step, i.e. V(s) ~= -weight * remaining steps.
-
-        Being state- and action-independent it gives no signal *within* an
-        episode; what it does is make ending the episode sooner worth more, so
-        the policy prefers scoring now over stalling. Use a tiny weight: it
-        accumulates over every step of the episode.
-        """
+        """Constant -1.0 per step. Makes ending the episode sooner worth more,
+        so the policy prefers scoring now over stalling. Use a tiny weight."""
         return -1.0
 
     def _reward_dribble(self):
@@ -637,7 +629,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         return 1.0 if any(robot.infrared for robot in self.frame.robots_blue.values()) else 0.0
     
     def _reward_off_ball_positioning(self):
-        """Penalize the non-closest robot for being near the ball. [MUSKAN Option 2]
+        """Penalize the non-closest robot for being near the ball. 
 
         Forces exactly one robot to engage the ball while the other stays away,
         creating natural passer/receiver role differentiation.
@@ -656,7 +648,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         return penalty
 
     def _reward_receiver_positioning(self):
-        """Reward the non-ball robot for being ahead of the ball in a good receiving position. [MUSKAN Option 3]
+        """Reward the non-ball robot for being ahead of the ball in a good receiving position.
 
         Specifically: the non-closest robot gets reward for being:
         - Ahead of the ball in x-direction (toward goal)
@@ -682,9 +674,9 @@ class SSLDynamicRobots(SSLBaseEnv):
     def _reward_receiver_positioning_omni(self):
         """Direction-independent copy of _reward_receiver_positioning.
 
-        1.0 per non-closest robot standing at passable range from the ball
-        (d_min .. 5*field_scale, same band as _reward_kick_without_receiver_omni),
-        with no +x gate. This is the counterpart _reward_off_ball_positioning lacks:
+        1.0 per non-closest robot at passable range from the ball; no +x gate.
+        
+        This is the counterpart _reward_off_ball_positioning lacks:
         on its own that penalty only says "get away from the ball", and is maximized
         by parking on the field border as seen in the videos.
         """
@@ -701,7 +693,7 @@ class SSLDynamicRobots(SSLBaseEnv):
         ))
 
     def _reward_kick_without_receiver(self):
-        """Penalize kicking when no teammate is in a good receiving position. [MUSKAN]
+        """Penalize kicking when no teammate is in a good receiving position.
 
         If robot A kicks but robot B is not positioned ahead of the ball,
         the kick is likely a direct shot attempt rather than a pass setup.
