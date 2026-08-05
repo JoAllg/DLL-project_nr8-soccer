@@ -50,3 +50,7 @@ After deployment, the following SSH aliases are available:
 - https://wiki.bwhpc.de/e/BwUniCluster3.0
 - https://wiki.bwhpc.de/e/BwUniCluster3.0/Hardware_and_Architecture
 - https://wiki.bwhpc.de/e/BwUniCluster3.0/Running_Jobs
+
+
+## Disclaimer:
+These scripts were written with the help of code prompting.
