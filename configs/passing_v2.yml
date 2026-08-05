@@ -1,0 +1,209 @@
+defaults: &defaults
+  total_steps: 16000000
+
+# Normalized coordinates: x * field.length/2 (4.5 m), y * field.width/2 (3.0 m)
+# on the default 9x6 field. A pass only counts after >= 1.5 m ball travel
+# (d_min = 2.0 * field_scale), so spawn boxes must allow that separation but
+# stay small so the first passes happen early.
+position_templates:
+  ball_middle: &ball_middle
+    min: [-0.2, -0.6]
+    max: [0.2, 0.6]
+
+  # tiny box in the middle of blue_half -> minimizes worst-case distance
+  # to either robot, for fast first ball contact
+  ball_close_blue: &ball_close_blue
+    min: [-0.5, -0.15]
+    max: [-0.35, 0.15]
+
+  # ~2.7 x 2.7 m box -> mean robot separation ~2 m, just above d_min
+  pass_box_tight: &pass_box_tight
+    min: [-0.75, -0.45]
+    max: [-0.15, 0.45]
+
+  # ~3.6 x 3.9 m box -> longer passes, lanes no longer trivial
+  pass_box_wide: &pass_box_wide
+    min: [-0.85, -0.65]
+    max: [-0.05, 0.65]
+
+  ball_in_pass_box_wide: &ball_in_pass_box_wide
+    min: [-0.6, -0.3]
+    max: [-0.3, 0.3]
+
+  blue_half: &blue_half
+    min: [-0.8, -0.8]
+    max: [-0.1, 0.8]
+
+
+## Available rewards (reference for templates below)
+# proximity (ps*): distance to ball (closer = higher reward)
+# progress (ps*): ball progress towards goal
+# kick_forward (ps*): robot kicks ball with a forward (+x) component
+# kick (ps*): robot kicks ball in any direction (use for passing)
+# dribble (ps*): teammate keeps ball at dribbler (use small weight)
+# goal: goal scored
+# goal_close: goal scored if shot from the last third of the playing field
+# time (ps*): flat per-step penalty, makes ending the episode sooner worth more
+
+## Teamwork
+# spread (ps*): reward for robots maintaining spatial separation [MUSKAN]
+# receiver_positioning (ps*): reward for non-closest robot holding good receiving spot [MUSKAN]
+# off_ball_positioning (ps*): penalty for non-closest robot crowding the ball [MUSKAN]
+# spacing (ps*): crowding penalty when blue robots clump close to ball
+
+# pass (ps*): pulse when a passed ball reaches a different teammate (small weight)
+# pass_forward (ps*): like pass but scaled by how much the pass advances toward goal [MUSKAN]
+# pass_to_shot (ps*): bonus when a shot follows a pass within 15 steps [MUSKAN]
+# kick_without_receiver (ps*): penalty for kicking with no teammate positioned to receive [MUSKAN]
+# kick_without_receiver_omni (ps*): same, but a teammate counts in any direction (no +x gate), range d_min..5*field_scale
+
+# (ps*) = per-step reward: evaluated each step and collectable repeatedly within an episode (dense or event-triggered), so keep the weight small
+
+## Discontinued
+# kick_velocity (ps*): ball kick-velocity (forward direction) reward
+# out_of_bounds (ps*): BALL left the playing field (penalty; use a positive weight, value already negative)
+
+
+# Passing objective only. Excluded on purpose:
+#   spread                          rewards standing apart, not passing
+#   pass_forward, kick_forward,
+#   progress, pass_to_shot          +x direction objective
+#   receiver_positioning,
+#   kick_without_receiver           gated on x_ahead > 0, i.e. also +x direction
+#                                   (kick_without_receiver_omni is used instead)
+#   spacing                         robot-to-robot gap near the ball; covered by
+#                                   off_ball_positioning, which is ball-referenced
+#                                   and also catches both robots hugging the ball
+#                                   from opposite sides
+#   goal, goal_close                scoring objective
+#   time                            episodes only end on a goal; with no goal
+#                                   reward it is a constant offset, no gradient
+#
+# off_ball_positioning is dense: -1 per step per non-closest robot inside
+# 0.75 m of the ball, so 3 robots can pay it twice per step. Keep the weight
+# well under pass/max_steps.
+reward_templates:
+  # Stage A: no pass has ever happened -> pay for approach and for kicking at all.
+  # No kick penalty here, kicking must first appear at all.
+  seed_contact: &seed_contact_rw
+    proximity: 0.05
+    kick: 0.5
+    pass: 10.0
+    off_ball_positioning: 0.03
+
+  # Stage B: passes occur -> shift mass onto the pass event, fade the shaping,
+  # start penalizing kicks with nobody in range.
+  pass_focus: &pass_focus_rw
+    proximity: 0.02
+    kick: 0.3
+    pass: 20.0
+    off_ball_positioning: 0.06
+    kick_without_receiver_omni: 0.1
+
+  # Stage C: pass nearly the only payout, passer/receiver split enforced harder.
+  pass_dominant: &pass_dominant_rw
+    proximity: 0.01
+    kick: 0.15
+    pass: 30.0
+    off_ball_positioning: 0.09
+    kick_without_receiver_omni: 0.2
+
+  # Stage D: full-field spawns, shaping almost off, aimless kicks cost more
+  # than the kick reward pays.
+  pass_only: &pass_only_rw
+    proximity: 0.01
+    kick: 0.1
+    pass: 40.0
+    off_ball_positioning: 0.12
+    kick_without_receiver_omni: 0.3
+
+stages:
+  # --- 2 robots: close spawns first, then spread out ---
+  - name: "2vs0pass_tight_seed"
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_close_blue
+      allowed_positions_blue:
+        <<: *pass_box_tight
+      rewards:
+        <<: *seed_contact_rw
+
+  - name: "2vs0pass_tight"
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_close_blue
+      allowed_positions_blue:
+        <<: *pass_box_tight
+      rewards:
+        <<: *pass_focus_rw
+
+  - name: "2vs0pass_wide"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_in_pass_box_wide
+      allowed_positions_blue:
+        <<: *pass_box_wide
+      rewards:
+        <<: *pass_dominant_rw
+
+  - name: "2vs0pass_blue_half"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *blue_half
+      allowed_positions_blue:
+        <<: *blue_half
+      rewards:
+        <<: *pass_dominant_rw
+
+  - name: "2vs0pass_random"
+    <<: *defaults
+    environment:
+      n_robots_blue: 2
+      n_robots_yellow: 0
+      rewards:
+        <<: *pass_only_rw
+
+  # --- 3 robots: same ladder, receiver choice added ---
+  - name: "3vs0pass_tight"
+    total_steps: 8000000
+    environment:
+      n_robots_blue: 3
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_close_blue
+      allowed_positions_blue:
+        <<: *pass_box_tight
+      rewards:
+        <<: *pass_focus_rw
+
+  - name: "3vs0pass_wide"
+    <<: *defaults
+    environment:
+      n_robots_blue: 3
+      n_robots_yellow: 0
+      allowed_positions_ball:
+        <<: *ball_in_pass_box_wide
+      allowed_positions_blue:
+        <<: *pass_box_wide
+      rewards:
+        <<: *pass_dominant_rw
+
+  - name: "3vs0pass_random"
+    <<: *defaults
+    environment:
+      n_robots_blue: 3
+      n_robots_yellow: 0
+      rewards:
+        <<: *pass_only_rw
