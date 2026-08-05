@@ -80,3 +80,6 @@ Very good initial implementation (CleanRL): [https://github.com/vwxyzjn/cleanrl/
 Introduction into Deep RL: [https://spinningup.openai.com/en/latest/spinningup/rl_intro.html](https://spinningup.openai.com/en/latest/spinningup/rl_intro.html) (PPO is also explained there!)
 
 For transformers, there are a lof of very good tutorials out there, but it depends on how much you already understand. In the end, you will probably be working with something of the PyTorch library: [https://docs.pytorch.org/docs/2.12/generated/torch.nn.TransformerEncoderLayer.html](https://docs.pytorch.org/docs/2.12/generated/torch.nn.TransformerEncoderLayer.html)
+
+# AI Usage
+AI usage disclosure can be found [here](./AI_DISCLOSURE.md).
