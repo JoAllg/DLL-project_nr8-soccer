@@ -1,11 +1,16 @@
+[![Contributors][contributors-shield]][contributors-url]
+[![Creative Commons License][license-shield]][license-url]
+
+[contributors-shield]: https://img.shields.io/github/contributors/JoAllg/DLL-project_nr8-soccer.svg?style=for-the-badge
+[contributors-url]: https://github.com/JoAllg/DLL-project_nr8-soccer/graphs/contributors
+[license-shield]: https://img.shields.io/badge/Licence-CC_BY--NC_4.0-red?style=for-the-badge
+[license-url]: https://creativecommons.org/licenses/by-nc/4.0/
+
 # NR#8 Learning Cooperation in Soccer with Transformer-Based Policies (Julien)
 
-In soccer, players need to work together to play well. Transformers can be useful as policies as they can handle teams with different numbers of players. You will:
+This project explores reinforcement learning in the simulated rSoccer environment. We train a transformer-based policy to play soccer by learning to score goals, coordinate with teammates, and evaluate how the learned policy scales across different team sizes.
 
-- Get familiar with rSoccer
-- Implement a transformer-based team policy
-- Train agents with deep reinforcement learning
-- Evaluate cooperation and generalization to different team sizes (optional!)
+<img width="506" height="308" alt="image" src="https://github.com/user-attachments/assets/90d9657b-87ac-40e6-a1f1-0628ec7866cf" />
 
 # Installation
 
@@ -39,6 +44,7 @@ uv sync
 
 
 ## Usage
+### Training:
 
 Via uv you can run the training with
 
@@ -52,9 +58,9 @@ To use multiple GPUs do
 uv run torchrun --standalone --nnodes=1 --nproc_per_node=<NUM_GPUS> src/ppo.py --track --capture-video
 ```
 
-Optional:
+### Simulating a model:
 ```bash
---stage-selection="<stage-name>"
+uv run  src/simulate.py --model-path=<path_to_model> --stage-name=<name_of_stage> --render
 ```
 
 # References
